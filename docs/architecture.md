@@ -116,7 +116,12 @@ was used instead of `docker compose up -d db`:
   an allowlisted admin, publish a listing, apply from a second
   organization, award, submit evidence, confirm, and check the points
   ledger). Every step produced real data in Postgres; none of it is
-  simulated.
+  simulated. The first pass through this used `curl` directly against the
+  admin API, because there was no admin page yet; the `/admin` page (a
+  verification queue with approve/reject/more-info actions) was built
+  afterward and re-verified the same way — approve a real pending case,
+  confirm the org flips to verified, confirm a non-admin user gets a 403
+  with a clear message instead of a crash.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anything that would need object storage or a live blockchain RPC

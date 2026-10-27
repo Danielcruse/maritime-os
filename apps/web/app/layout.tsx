@@ -25,6 +25,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="/dashboard" style={{ color: "#9fb0c7", textDecoration: "none" }}>
               Dashboard
             </a>
+            <a href="/admin" style={{ color: "#9fb0c7", textDecoration: "none" }}>
+              Admin
+            </a>
             <a href="/login" style={{ color: "#9fb0c7", textDecoration: "none" }}>
               Log in
             </a>

@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { VerificationDecision } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
@@ -102,6 +103,27 @@ export class OrganizationsService {
 
       return vcase;
     });
+  }
+
+  /** Admin-only listing — joins the organization's name so reviewers don't have to look it up separately. */
+  async listVerificationCases(decision?: VerificationDecision) {
+    const cases = await this.prisma.verificationCase.findMany({
+      where: decision ? { decision } : undefined,
+      include: { organization: { select: { legalName: true, countryCode: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    return cases.map((c) => ({
+      id: c.id,
+      organizationId: c.organizationId,
+      organizationName: c.organization.legalName,
+      organizationCountryCode: c.organization.countryCode,
+      decision: c.decision,
+      reasonCode: c.reasonCode,
+      notes: c.notes,
+      documentKeys: c.documentKeys,
+      createdAt: c.createdAt,
+      decidedAt: c.decidedAt,
+    }));
   }
 
   async decideVerification(caseId: string, adminUserId: string, dto: VerificationDecisionDto) {
