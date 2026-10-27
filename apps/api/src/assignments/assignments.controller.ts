@@ -35,6 +35,12 @@ export class AssignmentsController {
     return { data: await this.assignmentsService.getById(id) };
   }
 
+  @Get("listings/:listingId/assignment")
+  @UseGuards(JwtAuthGuard)
+  async getByListingId(@Param("listingId") listingId: string) {
+    return { data: await this.assignmentsService.getByListingId(listingId) };
+  }
+
   @Post("assignments/:id/evidence/organizations/:organizationId")
   @UseGuards(JwtAuthGuard, OrgMembershipGuard)
   @RequireOrgRoles("owner", "admin", "member")

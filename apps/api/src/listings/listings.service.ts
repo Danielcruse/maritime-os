@@ -87,6 +87,14 @@ export class ListingsService {
     return listing;
   }
 
+  /** Includes draft listings, unlike `search` — only the owning org's members may call this. */
+  async listForOrganization(organizationId: string) {
+    return this.prisma.freightListing.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   async cancel(listingId: string, organizationId: string, userId: string) {
     return this.prisma.$transaction(async (tx) => {
       const listing = await tx.freightListing.findUnique({ where: { id: listingId } });

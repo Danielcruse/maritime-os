@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, ApiRequestError } from "../../lib/api";
+import { storeTokens } from "../../lib/auth";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -19,9 +22,9 @@ export default function RegisterPage() {
         "/auth/register",
         { email, password, displayName, countryCode },
       );
-      window.localStorage.setItem("accessToken", data.accessToken);
-      window.localStorage.setItem("refreshToken", data.refreshToken);
-      setResult(`Registered as ${data.user.email}. Maritime ID issued — check /me.`);
+      storeTokens(data);
+      setResult(`Registered as ${data.user.email}. Redirecting to your dashboard…`);
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.apiError.message : "Registration failed.");
     }

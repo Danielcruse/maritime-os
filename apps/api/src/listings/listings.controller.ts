@@ -21,6 +21,13 @@ export class ListingsController {
     return { data: await this.listingsService.getById(id) };
   }
 
+  @Get("organizations/:organizationId")
+  @UseGuards(JwtAuthGuard, OrgMembershipGuard)
+  @RequireOrgRoles("owner", "admin", "member")
+  async listForOrganization(@Param("organizationId") organizationId: string) {
+    return { data: await this.listingsService.listForOrganization(organizationId) };
+  }
+
   @Post("organizations/:organizationId")
   @UseGuards(JwtAuthGuard, OrgMembershipGuard)
   @RequireOrgRoles("owner", "admin")

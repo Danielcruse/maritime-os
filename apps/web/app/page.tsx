@@ -40,7 +40,9 @@ export default function HomePage() {
             key={listing.id}
             style={{ border: "1px solid #1d2a3f", borderRadius: 8, padding: 16, marginBottom: 12 }}
           >
-            <strong>{listing.title}</strong>
+            <a href={`/listings/${listing.id}`} style={{ color: "#e7edf5", fontWeight: 600, textDecoration: "none" }}>
+              {listing.title}
+            </a>
             <p style={{ margin: "4px 0", color: "#9fb0c7" }}>{listing.cargoSummary}</p>
             <small>
               {listing.currency ?? "—"} · {listing.status} · {new Date(listing.createdAt).toLocaleDateString()}

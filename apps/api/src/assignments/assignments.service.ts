@@ -235,4 +235,9 @@ export class AssignmentsService {
     if (!assignment) throw new NotFoundException("Assignment not found.");
     return assignment;
   }
+
+  /** Lets an applicant discover the assignment created once their listing is awarded. Null, not 404 — "not yet awarded" is a normal state. */
+  async getByListingId(listingId: string) {
+    return this.prisma.assignment.findUnique({ where: { listingId } });
+  }
 }

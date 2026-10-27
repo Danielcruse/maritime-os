@@ -25,6 +25,21 @@ export class UsersService {
     };
   }
 
+  async getOwnOrganizations(userId: string) {
+    const memberships = await this.prisma.organizationMember.findMany({
+      where: { userId, status: "active" },
+      include: { organization: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return memberships.map((m) => ({
+      id: m.organization.id,
+      legalName: m.organization.legalName,
+      countryCode: m.organization.countryCode,
+      verificationStatus: m.organization.verificationStatus,
+      role: m.role,
+    }));
+  }
+
   async updateOwnProfile(userId: string, dto: UpdateProfileDto) {
     const profile = await this.prisma.userProfile.update({
       where: { userId },

@@ -88,17 +88,36 @@ transaction" rule.
 
 This project was scaffolded in a sandbox with no Docker and no local
 PostgreSQL installation (confirmed: `docker --version` → not found, `psql`
-→ not found). That means:
+→ not found). `npm install`, `prisma generate`, the TypeScript build, and
+the Jest **unit** tests (pure functions with no database:
+`maritime-id.spec.ts`, `reputation-calculator.spec.ts`,
+`credential-signing.spec.ts`, `chain-anchor.service.spec.ts`,
+`audit.service.spec.ts`) ran from the start and their real output is what's
+reported in the top-level README.
 
-- `npm install`, `prisma generate`, the TypeScript build, and the Jest
-  **unit** tests (pure functions with no database: `maritime-id.spec.ts`,
-  `reputation-calculator.spec.ts`, `credential-signing.spec.ts`,
-  `chain-anchor.service.spec.ts`, `audit.service.spec.ts`) could actually be
-  run and their real output is what's reported in the top-level README.
-- The Prisma migration, the seed script, and the **e2e** test
-  (`marketplace-lifecycle.e2e-spec.ts`, which exercises the full
-  register → verify → publish → apply → award → confirm → points journey
-  against a real database) have **not** been run anywhere. They need
-  `docker compose up -d db` (or any reachable Postgres 16) plus
-  `npm run prisma:migrate:deploy` first. Do not take their existence as
-  proof they pass — run them before trusting this slice in a pilot.
+The database-dependent paths have since actually been run, against a real
+(if non-standard) local Postgres — no Docker was ever available in this
+sandbox, so `embedded-postgres` (see [scripts/local-db.mjs](../scripts/local-db.mjs))
+was used instead of `docker compose up -d db`:
+
+- The Prisma migration and seed script ran and were confirmed idempotent
+  (re-running the seed no longer duplicates the demo listing — it upserts
+  on a fixed id).
+- The **e2e** test (`marketplace-lifecycle.e2e-spec.ts`, the full
+  register → verify → publish → apply → award → confirm → points journey)
+  ran against that database and passed. Running it surfaced and fixed a
+  real bug: `JwtAuthGuard` was only resolvable within `AuthModule`'s own
+  scope, which would have broken every protected endpoint outside it in
+  production (see `apps/api/src/auth/auth.module.ts`).
+- Beyond the automated e2e test, the same journey — plus the admin
+  verification-decision endpoint, which the e2e test bypasses with a
+  direct Prisma write — was run by hand through the real Next.js UI and
+  the real API (register, create org, submit verification, approve it as
+  an allowlisted admin, publish a listing, apply from a second
+  organization, award, submit evidence, confirm, and check the points
+  ledger). Every step produced real data in Postgres; none of it is
+  simulated.
+
+Still not run anywhere: load/concurrency testing, a backup/restore drill,
+and anything that would need object storage or a live blockchain RPC
+endpoint (neither is configured — see "Known limitations" above).

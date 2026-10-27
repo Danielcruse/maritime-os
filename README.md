@@ -25,15 +25,17 @@ here is production-ready.
 | Audit trail (hash-chained, tamper-evident) | Implemented |
 | Blockchain anchoring | **Stub only** — no network selected, no contract deployed |
 | Object storage / file upload | **Not implemented** — API accepts pre-existing storage keys only |
-| Frontend | **Minimal** — register page + open-listings browse; the full assignment lifecycle UI is not built |
+| Frontend | Implemented — register/login, dashboard, org management + verification, listing create/publish/apply/award, assignment evidence/confirm/dispute. No file upload, styling is minimal, no admin UI (use the API directly) |
 | Security hardening, load testing, backup drills | **Not done** |
 
 Nothing above is a demo pretending to work — every "Implemented" row has
-working service code and, where the logic doesn't need a database, a real
-passing unit test (see "Test results" below). The database-dependent paths
-(migrations, seed, the full e2e lifecycle test) have **not** been run,
-because this was built in a sandbox with no Docker and no local Postgres —
-run them yourself before trusting this slice; instructions below.
+working service code and a real passing unit test where the logic doesn't
+need a database (see "Test results" below). The database-dependent paths
+(migrations, seed, the full e2e lifecycle test) **have** been run, against
+a real local Postgres — see
+[docs/architecture.md § What has and hasn't run](docs/architecture.md#what-has-and-hasnt-run)
+for exactly what, including a full register → award → confirm → points
+run through the actual UI, not just the automated test.
 
 ## Requirements
 

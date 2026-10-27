@@ -14,6 +14,11 @@ export class UsersController {
     return { data: await this.usersService.getOwnProfile(user.userId) };
   }
 
+  @Get("organizations")
+  async getMyOrganizations(@CurrentUser() user: AuthenticatedUser) {
+    return { data: await this.usersService.getOwnOrganizations(user.userId) };
+  }
+
   @Patch()
   async updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateProfileDto) {
     return { data: await this.usersService.updateOwnProfile(user.userId, dto) };
