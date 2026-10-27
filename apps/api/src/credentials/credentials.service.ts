@@ -118,6 +118,26 @@ export class CredentialsService {
     };
   }
 
+  async listForOrganization(issuerOrgId: string) {
+    const credentials = await this.prisma.credential.findMany({
+      where: { issuerOrgId },
+      include: { subject: { select: { profile: { select: { maritimeId: true, displayName: true } } } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return credentials.map(({ subject, ...c }) => ({
+      ...c,
+      subjectMaritimeId: subject.profile?.maritimeId,
+      subjectDisplayName: subject.profile?.displayName,
+    }));
+  }
+
+  /** Lets an issuer resolve "who am I issuing this to" from the subject's public Maritime ID instead of a raw UUID. */
+  async findSubjectByMaritimeId(maritimeId: string) {
+    const profile = await this.prisma.userProfile.findUnique({ where: { maritimeId } });
+    if (!profile) throw new NotFoundException("No user found with that Maritime ID.");
+    return { userId: profile.userId, maritimeId: profile.maritimeId, displayName: profile.displayName };
+  }
+
   async revoke(credentialId: string, issuerOrgId: string, userId: string, dto: RevokeCredentialDto) {
     return this.prisma.$transaction(async (tx) => {
       const credential = await tx.credential.findUnique({ where: { id: credentialId } });

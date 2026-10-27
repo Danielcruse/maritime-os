@@ -23,10 +23,20 @@ interface MyOrg {
   role: string;
 }
 
+interface MyCredential {
+  id: string;
+  credentialType: string;
+  status: string;
+  issuedAt: string;
+  expiresAt: string | null;
+  issuer: { legalName: string };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [orgs, setOrgs] = useState<MyOrg[]>([]);
+  const [credentials, setCredentials] = useState<MyCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,10 +48,11 @@ export default function DashboardPage() {
 
   function load() {
     setLoading(true);
-    Promise.all([api.get<Me>("/me"), api.get<MyOrg[]>("/me/organizations")])
-      .then(([meData, orgsData]) => {
+    Promise.all([api.get<Me>("/me"), api.get<MyOrg[]>("/me/organizations"), api.get<MyCredential[]>("/me/credentials")])
+      .then(([meData, orgsData, credentialsData]) => {
         setMe(meData);
         setOrgs(orgsData);
+        setCredentials(credentialsData);
       })
       .catch((err) => setError(err instanceof ApiRequestError ? err.apiError.message : "Could not load your dashboard."))
       .finally(() => setLoading(false));
@@ -103,6 +114,23 @@ export default function DashboardPage() {
             </a>{" "}
             <span style={badge}>{org.role}</span> <span style={badge}>{org.verificationStatus}</span>
             <p style={muted}>{org.countryCode}</p>
+          </li>
+        ))}
+      </ul>
+
+      <h2>Your credentials</h2>
+      {credentials.length === 0 && <p style={muted}>None issued to you yet.</p>}
+      <ul style={{ listStyle: "none", padding: 0 }}>
+        {credentials.map((c) => (
+          <li key={c.id} style={card}>
+            <strong>{c.credentialType}</strong> <span style={badge}>{c.status}</span>
+            <p style={muted}>
+              Issued by {c.issuer.legalName} on {new Date(c.issuedAt).toLocaleDateString()}
+              {c.expiresAt && ` · expires ${new Date(c.expiresAt).toLocaleDateString()}`}
+            </p>
+            <a href={`/credentials/${c.id}`} style={{ color: "#2f6fed" }}>
+              View verification page
+            </a>
           </li>
         ))}
       </ul>

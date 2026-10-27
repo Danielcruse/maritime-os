@@ -122,6 +122,16 @@ was used instead of `docker compose up -d db`:
   afterward and re-verified the same way — approve a real pending case,
   confirm the org flips to verified, confirm a non-admin user gets a 403
   with a clear message instead of a crash.
+- The credential issue/verify/revoke path got the same live treatment: one
+  verified org looked up another user by their public Maritime ID (a new
+  endpoint added for this — `GET /credentials/subjects/:maritimeId`),
+  issued them a signed credential, and the subject saw it appear on their
+  own dashboard. The public verification page confirmed a real Ed25519
+  signature check ("Signature: valid (Ed25519)"), not a hardcoded string.
+  Revoking the credential through the UI flipped its status to `revoked`
+  and the same verification page updated to "✗ Not currently valid" while
+  still reporting the signature as intact — confirming revocation is
+  tracked as state, not by breaking the signature.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anything that would need object storage or a live blockchain RPC

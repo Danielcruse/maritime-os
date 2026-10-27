@@ -40,6 +40,14 @@ export class UsersService {
     }));
   }
 
+  async getOwnCredentials(userId: string) {
+    return this.prisma.credential.findMany({
+      where: { subjectId: userId },
+      include: { issuer: { select: { legalName: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   async updateOwnProfile(userId: string, dto: UpdateProfileDto) {
     const profile = await this.prisma.userProfile.update({
       where: { userId },

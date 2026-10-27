@@ -23,6 +23,22 @@ interface Listing {
   createdAt: string;
 }
 
+interface Credential {
+  id: string;
+  credentialType: string;
+  status: string;
+  subjectMaritimeId?: string;
+  subjectDisplayName?: string;
+  issuedAt: string;
+  expiresAt: string | null;
+}
+
+interface ResolvedSubject {
+  userId: string;
+  maritimeId: string;
+  displayName: string;
+}
+
 export default function OrganizationPage() {
   const params = useParams<{ id: string }>();
   const orgId = params.id;
@@ -30,8 +46,20 @@ export default function OrganizationPage() {
   const [org, setOrg] = useState<Organization | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [subjectMaritimeId, setSubjectMaritimeId] = useState("");
+  const [resolvedSubject, setResolvedSubject] = useState<ResolvedSubject | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [credentialType, setCredentialType] = useState("");
+  const [credentialExpiresAt, setCredentialExpiresAt] = useState("");
+  const [issuing, setIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [revokeReasonByCredential, setRevokeReasonByCredential] = useState<Record<string, string>>({});
+  const [credentialActionError, setCredentialActionError] = useState<string | null>(null);
 
   const [docKeys, setDocKeys] = useState("");
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
@@ -54,11 +82,15 @@ export default function OrganizationPage() {
       loggedIn
         ? api.get<Listing[]>(`/listings/organizations/${orgId}`).catch(() => [])
         : Promise.resolve([]),
+      loggedIn
+        ? api.get<Credential[]>(`/organizations/${orgId}/credentials`).catch(() => [])
+        : Promise.resolve([]),
     ])
-      .then(([orgData, myOrgs, listingsData]) => {
+      .then(([orgData, myOrgs, listingsData, credentialsData]) => {
         setOrg(orgData);
         setMyRole(myOrgs.find((o) => o.id === orgId)?.role ?? null);
         setListings(listingsData);
+        setCredentials(credentialsData);
       })
       .catch((err) => setError(err instanceof ApiRequestError ? err.apiError.message : "Could not load organization."))
       .finally(() => setLoading(false));
@@ -118,6 +150,59 @@ export default function OrganizationPage() {
       load();
     } catch (err) {
       setListingError(err instanceof ApiRequestError ? err.apiError.message : "Could not publish listing.");
+    }
+  }
+
+  async function onLookupSubject(e: React.FormEvent) {
+    e.preventDefault();
+    setLookupError(null);
+    setResolvedSubject(null);
+    setLookingUp(true);
+    try {
+      const subject = await api.get<ResolvedSubject>(`/credentials/subjects/${subjectMaritimeId.trim()}`);
+      setResolvedSubject(subject);
+    } catch (err) {
+      setLookupError(err instanceof ApiRequestError ? err.apiError.message : "Could not find that Maritime ID.");
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
+  async function onIssueCredential(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resolvedSubject) return;
+    setIssueError(null);
+    setIssuing(true);
+    try {
+      await api.post(`/organizations/${orgId}/credentials`, {
+        subjectUserId: resolvedSubject.userId,
+        credentialType,
+        expiresAt: credentialExpiresAt ? new Date(credentialExpiresAt).toISOString() : undefined,
+      });
+      setSubjectMaritimeId("");
+      setResolvedSubject(null);
+      setCredentialType("");
+      setCredentialExpiresAt("");
+      load();
+    } catch (err) {
+      setIssueError(err instanceof ApiRequestError ? err.apiError.message : "Could not issue credential.");
+    } finally {
+      setIssuing(false);
+    }
+  }
+
+  async function onRevoke(credentialId: string) {
+    setCredentialActionError(null);
+    const reason = revokeReasonByCredential[credentialId];
+    if (!reason) {
+      setCredentialActionError("A reason is required to revoke a credential.");
+      return;
+    }
+    try {
+      await api.post(`/organizations/${orgId}/credentials/${credentialId}/revoke`, { reason });
+      load();
+    } catch (err) {
+      setCredentialActionError(err instanceof ApiRequestError ? err.apiError.message : "Could not revoke credential.");
     }
   }
 
@@ -211,6 +296,94 @@ export default function OrganizationPage() {
             </form>
           )}
           {listingError && <p style={errorText}>{listingError}</p>}
+
+          <h2>Credentials issued</h2>
+          <p style={muted}>
+            Any verified organization can issue credentials in this MVP — there's no separate authorized-issuer
+            tier yet (see known limitations).
+          </p>
+          {credentials.length === 0 && <p style={muted}>None issued yet.</p>}
+          <ul style={{ listStyle: "none", padding: 0 }}>
+            {credentials.map((c) => (
+              <li key={c.id} style={card}>
+                <strong>{c.credentialType}</strong> <span style={badge}>{c.status}</span>
+                <p style={muted}>
+                  To {c.subjectDisplayName ?? "?"} ({c.subjectMaritimeId ?? "?"}) ·{" "}
+                  {new Date(c.issuedAt).toLocaleDateString()}
+                  {c.expiresAt && ` · expires ${new Date(c.expiresAt).toLocaleDateString()}`}
+                </p>
+                <a href={`/credentials/${c.id}`} style={{ color: "#2f6fed" }}>
+                  View verification page
+                </a>
+                {c.status === "active" && (
+                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                    <input
+                      placeholder="Reason for revoking"
+                      value={revokeReasonByCredential[c.id] ?? ""}
+                      onChange={(e) => setRevokeReasonByCredential({ ...revokeReasonByCredential, [c.id]: e.target.value })}
+                    />
+                    <button style={secondaryButton} onClick={() => onRevoke(c.id)}>
+                      Revoke
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {credentialActionError && <p style={errorText}>{credentialActionError}</p>}
+
+          <h2>Issue a credential</h2>
+          {org.verificationStatus !== "verified" ? (
+            <p style={muted}>Organization must be verified before issuing credentials.</p>
+          ) : (
+            <>
+              <form onSubmit={onLookupSubject} style={{ display: "flex", gap: 8, maxWidth: 420 }}>
+                <input
+                  placeholder="Subject's Maritime ID (e.g. MID-NG-ABC123)"
+                  value={subjectMaritimeId}
+                  onChange={(e) => {
+                    setSubjectMaritimeId(e.target.value.toUpperCase());
+                    setResolvedSubject(null);
+                  }}
+                  required
+                  style={{ flex: 1 }}
+                />
+                <button type="submit" style={secondaryButton} disabled={lookingUp}>
+                  {lookingUp ? "Looking up…" : "Look up"}
+                </button>
+              </form>
+              {lookupError && <p style={errorText}>{lookupError}</p>}
+              {resolvedSubject && (
+                <p style={successText}>
+                  Found: {resolvedSubject.displayName} ({resolvedSubject.maritimeId})
+                </p>
+              )}
+
+              {resolvedSubject && (
+                <form onSubmit={onIssueCredential} style={form}>
+                  <input
+                    placeholder="Credential type (e.g. certified-marine-surveyor)"
+                    value={credentialType}
+                    onChange={(e) => setCredentialType(e.target.value)}
+                    required
+                  />
+                  <label style={muted}>
+                    Expires (optional)
+                    <input
+                      type="date"
+                      value={credentialExpiresAt}
+                      onChange={(e) => setCredentialExpiresAt(e.target.value)}
+                      style={{ display: "block", marginTop: 4 }}
+                    />
+                  </label>
+                  <button type="submit" style={button} disabled={issuing}>
+                    {issuing ? "Issuing…" : `Issue to ${resolvedSubject.displayName}`}
+                  </button>
+                </form>
+              )}
+              {issueError && <p style={errorText}>{issueError}</p>}
+            </>
+          )}
         </>
       )}
 

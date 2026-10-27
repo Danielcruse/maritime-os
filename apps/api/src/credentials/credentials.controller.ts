@@ -27,6 +27,19 @@ export class CredentialsController {
     return { data: await this.credentialsService.verify(id) };
   }
 
+  @Get("organizations/:organizationId/credentials")
+  @UseGuards(JwtAuthGuard, OrgMembershipGuard)
+  @RequireOrgRoles("owner", "admin", "member")
+  async listForOrganization(@Param("organizationId") organizationId: string) {
+    return { data: await this.credentialsService.listForOrganization(organizationId) };
+  }
+
+  @Get("credentials/subjects/:maritimeId")
+  @UseGuards(JwtAuthGuard)
+  async findSubject(@Param("maritimeId") maritimeId: string) {
+    return { data: await this.credentialsService.findSubjectByMaritimeId(maritimeId) };
+  }
+
   @Post("organizations/:organizationId/credentials/:id/revoke")
   @UseGuards(JwtAuthGuard, OrgMembershipGuard)
   @RequireOrgRoles("owner", "admin")
