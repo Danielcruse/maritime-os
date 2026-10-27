@@ -1,0 +1,37 @@
+{
+  "name": "maritime-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Maritime OS - maritime marketplace, identity and trust platform (MVP)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "test": "npm run test -w apps/api",
+    "test:unit": "npm run test:unit -w apps/api",
+    "test:e2e": "npm run test:e2e -w apps/api",
+    "lint": "npm run lint -w apps/api",
+    "prisma:generate": "prisma generate --schema database/prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema database/prisma/schema.prisma",
+    "prisma:migrate:deploy": "prisma migrate deploy --schema database/prisma/schema.prisma",
+    "prisma:seed": "node --experimental-strip-types database/seeds/seed.ts",
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "@nestjs/core@10.4.22": true,
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "argon2@0.41.1": true,
+    "prisma@5.22.0": true
+  }
+}

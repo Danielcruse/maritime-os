@@ -1,0 +1,531 @@
+// Maritime OS — logical data model (MVP)
+// PostgreSQL is the system of record. Blockchain is an external verification
+// layer only (see ChainAnchor) — never the primary store for operational data.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum OrganizationStatus {
+  pending
+  verified
+  rejected
+  suspended
+}
+
+enum MembershipRole {
+  owner
+  admin
+  member
+}
+
+enum MembershipStatus {
+  active
+  suspended
+  removed
+}
+
+enum VerificationDecision {
+  pending
+  approved
+  rejected
+  more_info_requested
+}
+
+enum CredentialStatus {
+  pending
+  active
+  suspended
+  revoked
+  expired
+}
+
+enum ListingStatus {
+  draft
+  open
+  closed
+  cancelled
+  awarded
+  expired
+}
+
+enum ApplicationStatus {
+  submitted
+  withdrawn
+  shortlisted
+  rejected
+  awarded
+}
+
+enum AssignmentStatus {
+  active
+  evidence_submitted
+  confirmed
+  disputed
+  cancelled
+}
+
+enum CompletionEvidenceStatus {
+  submitted
+  accepted
+  rejected
+}
+
+enum ReviewStatus {
+  active
+  hidden
+  removed
+}
+
+enum PointsEntryType {
+  earn
+  reversal
+  adjustment
+}
+
+enum PointsReferenceType {
+  assignment_completed
+  credential_verified
+  referral
+  manual_adjustment
+}
+
+enum DisputeStatus {
+  open
+  under_review
+  resolved_for_opener
+  resolved_for_counterparty
+  dismissed
+}
+
+enum ChainAnchorStatus {
+  pending
+  confirmed
+  failed
+  reorg_affected
+}
+
+enum UserStatus {
+  active
+  suspended
+  deleted
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  authSubject  String     @unique @map("auth_subject") @default(uuid()) @db.Uuid
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  profile              UserProfile?
+  memberships          OrganizationMember[]
+  reviewerOfCases      VerificationCase[]       @relation("VerificationReviewer")
+  credentialsHeld      Credential[]             @relation("CredentialSubject")
+  listingApplications  ListingApplication[]
+  submittedEvidence    CompletionEvidence[]     @relation("EvidenceSubmitter")
+  reviewsWritten       Review[]                 @relation("ReviewAuthorUser")
+  pointsAccount        PointsAccount?
+  auditEvents          AuditEvent[]
+  adminActions         AdminAction[]
+  disputesOpened       Dispute[]
+  refreshTokens        RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model UserProfile {
+  userId      String   @id @map("user_id") @db.Uuid
+  maritimeId  String   @unique @map("maritime_id")
+  displayName String   @map("display_name")
+  countryCode String   @map("country_code") @db.Char(2)
+  profileData Json     @default("{}") @map("profile_data")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Organization {
+  id                  String             @id @default(uuid()) @db.Uuid
+  legalName           String             @map("legal_name")
+  registrationNumber  String?            @map("registration_number")
+  countryCode         String             @map("country_code") @db.Char(2)
+  verificationStatus  OrganizationStatus @default(pending) @map("verification_status")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  members            OrganizationMember[]
+  verificationCases  VerificationCase[]
+  issuedCredentials  Credential[]          @relation("CredentialIssuer")
+  listings           FreightListing[]
+  applications       ListingApplication[]  @relation("ApplicantOrg")
+  awardedAssignments Assignment[]          @relation("AwardedToOrg")
+  reviewsGiven       Review[]              @relation("ReviewerOrg")
+  reviewsReceived    Review[]              @relation("RevieweeOrg")
+  reputationSnapshots ReputationSnapshot[]
+
+  // Registration numbers are unique per jurisdiction, not globally — some
+  // jurisdictions legitimately share formats, so this is a partial unique
+  // index that only applies when a number is present.
+  @@unique([countryCode, registrationNumber], name: "org_country_regnum_unique")
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  organizationId String            @map("organization_id") @db.Uuid
+  userId         String            @map("user_id") @db.Uuid
+  role           MembershipRole    @default(member)
+  status         MembershipStatus  @default(active)
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model VerificationCase {
+  id             String                @id @default(uuid()) @db.Uuid
+  organizationId String                @map("organization_id") @db.Uuid
+  reviewerId     String?               @map("reviewer_id") @db.Uuid
+  decision       VerificationDecision  @default(pending)
+  reasonCode     String?               @map("reason_code")
+  notes          String?
+  documentKeys   String[]              @map("document_keys")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  decidedAt      DateTime?             @map("decided_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewer     User?        @relation("VerificationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([decision])
+  @@map("verification_cases")
+}
+
+// ---------------------------------------------------------------------------
+// Credentials
+// ---------------------------------------------------------------------------
+
+model Credential {
+  id             String            @id @default(uuid()) @db.Uuid
+  subjectId      String            @map("subject_id") @db.Uuid
+  issuerOrgId    String            @map("issuer_org_id") @db.Uuid
+  credentialType String            @map("credential_type")
+  status         CredentialStatus  @default(pending)
+  issuedAt       DateTime          @default(now()) @map("issued_at")
+  expiresAt      DateTime?         @map("expires_at")
+  revokedAt      DateTime?         @map("revoked_at")
+  revocationReason String?         @map("revocation_reason")
+  signature      String
+  signatureAlg   String            @default("ed25519") @map("signature_alg")
+  payloadHash    String            @map("payload_hash")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  subject  User         @relation("CredentialSubject", fields: [subjectId], references: [id], onDelete: Restrict)
+  issuer   Organization @relation("CredentialIssuer", fields: [issuerOrgId], references: [id], onDelete: Restrict)
+  evidence CredentialEvidence[]
+
+  @@index([subjectId])
+  @@index([issuerOrgId])
+  @@map("credentials")
+}
+
+model CredentialEvidence {
+  id           String   @id @default(uuid()) @db.Uuid
+  credentialId String   @map("credential_id") @db.Uuid
+  storageKey   String   @map("storage_key")
+  contentHash  String   @map("content_hash")
+  accessPolicy String   @default("private") @map("access_policy")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId])
+  @@map("credential_evidence")
+}
+
+// ---------------------------------------------------------------------------
+// Marketplace
+// ---------------------------------------------------------------------------
+
+model FreightListing {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  title          String
+  origin         Json
+  destination    Json
+  cargoSummary   String        @map("cargo_summary")
+  capacity       Json?
+  currency       String?       @db.Char(3)
+  status         ListingStatus @default(draft)
+  expiresAt      DateTime?     @map("expires_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  applications ListingApplication[]
+  assignment   Assignment?
+
+  @@index([status, createdAt(sort: Desc)], name: "freight_listings_search_idx")
+  @@index([organizationId, createdAt(sort: Desc)], name: "freight_listings_org_idx")
+  @@map("freight_listings")
+}
+
+model ListingApplication {
+  id              String             @id @default(uuid()) @db.Uuid
+  listingId       String             @map("listing_id") @db.Uuid
+  applicantOrgId  String             @map("applicant_org_id") @db.Uuid
+  applicantUserId String             @map("applicant_user_id") @db.Uuid
+  quoteAmount     Decimal            @map("quote_amount") @db.Decimal(18, 2)
+  currency        String             @db.Char(3)
+  status          ApplicationStatus  @default(submitted)
+  message         String?
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  listing       FreightListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  applicantOrg  Organization   @relation("ApplicantOrg", fields: [applicantOrgId], references: [id], onDelete: Restrict)
+  applicantUser User           @relation(fields: [applicantUserId], references: [id], onDelete: Restrict)
+  awardedAssignment Assignment? @relation("AwardedApplication")
+
+  // One applicant org may not submit more than one active application per listing.
+  @@unique([listingId, applicantOrgId])
+  @@index([listingId])
+  @@map("listing_applications")
+}
+
+model Assignment {
+  id                   String           @id @default(uuid()) @db.Uuid
+  listingId            String           @unique @map("listing_id") @db.Uuid
+  awardedApplicationId String           @unique @map("awarded_application_id") @db.Uuid
+  awardedToOrgId       String           @map("awarded_to_org_id") @db.Uuid
+  status               AssignmentStatus @default(active)
+  agreedTermsVersion   Int              @default(1) @map("agreed_terms_version")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  listing            FreightListing       @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  awardedApplication ListingApplication   @relation("AwardedApplication", fields: [awardedApplicationId], references: [id], onDelete: Restrict)
+  awardedToOrg       Organization         @relation("AwardedToOrg", fields: [awardedToOrgId], references: [id], onDelete: Restrict)
+  events             AssignmentEvent[]
+  evidence           CompletionEvidence[]
+  reviews            Review[]
+  disputes           Dispute[]
+
+  @@map("assignments")
+}
+
+model AssignmentEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  assignmentId String   @map("assignment_id") @db.Uuid
+  eventType    String   @map("event_type")
+  actorId      String   @map("actor_id") @db.Uuid
+  payload      Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, createdAt])
+  @@map("assignment_events")
+}
+
+model CompletionEvidence {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  assignmentId       String                    @map("assignment_id") @db.Uuid
+  submittedBy        String                    @map("submitted_by") @db.Uuid
+  storageKey         String                    @map("storage_key")
+  contentHash        String                    @map("content_hash")
+  verificationStatus CompletionEvidenceStatus  @default(submitted) @map("verification_status")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  submitter  User       @relation("EvidenceSubmitter", fields: [submittedBy], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId])
+  @@map("completion_evidence")
+}
+
+model Dispute {
+  id             String        @id @default(uuid()) @db.Uuid
+  assignmentId   String        @map("assignment_id") @db.Uuid
+  openedBy       String        @map("opened_by") @db.Uuid
+  reason         String
+  status         DisputeStatus @default(open)
+  resolutionCode String?       @map("resolution_code")
+  resolutionNotes String?      @map("resolution_notes")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  resolvedAt     DateTime?     @map("resolved_at")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  opener     User       @relation(fields: [openedBy], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId])
+  @@map("disputes")
+}
+
+model Review {
+  id             String       @id @default(uuid()) @db.Uuid
+  assignmentId   String       @map("assignment_id") @db.Uuid
+  reviewerOrgId  String       @map("reviewer_org_id") @db.Uuid
+  revieweeOrgId  String       @map("reviewee_org_id") @db.Uuid
+  authorUserId   String       @map("author_user_id") @db.Uuid
+  rating         Int
+  comment        String?
+  status         ReviewStatus @default(active)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  assignment  Assignment   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  reviewerOrg Organization @relation("ReviewerOrg", fields: [reviewerOrgId], references: [id], onDelete: Restrict)
+  revieweeOrg Organization @relation("RevieweeOrg", fields: [revieweeOrgId], references: [id], onDelete: Restrict)
+  authorUser  User         @relation("ReviewAuthorUser", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  // One review per (assignment, reviewer->reviewee) direction — prevents duplicates.
+  @@unique([assignmentId, reviewerOrgId, revieweeOrgId])
+  @@index([revieweeOrgId])
+  @@map("reviews")
+}
+
+model ReputationSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  subjectId    String   @map("subject_id") @db.Uuid
+  scoreVersion String   @map("score_version")
+  score        Decimal  @db.Decimal(6, 3)
+  sampleSize   Int      @map("sample_size")
+  metrics      Json
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  organization Organization @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([subjectId, calculatedAt(sort: Desc)])
+  @@map("reputation_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// Points
+// ---------------------------------------------------------------------------
+
+model PointsAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  balanceCached Decimal @default(0) @map("balance_cached") @db.Decimal(18, 2)
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger PointsLedger[]
+
+  @@map("points_accounts")
+}
+
+model PointsLedger {
+  id             String              @id @default(uuid()) @db.Uuid
+  accountId      String              @map("account_id") @db.Uuid
+  entryType      PointsEntryType     @map("entry_type")
+  amount         Decimal             @db.Decimal(18, 2)
+  referenceType  PointsReferenceType @map("reference_type")
+  referenceId    String              @map("reference_id") @db.Uuid
+  idempotencyKey String              @unique @map("idempotency_key")
+  rulesVersion   String              @map("rules_version")
+  reversesEntryId String?            @map("reverses_entry_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  account PointsAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("points_ledger")
+}
+
+// ---------------------------------------------------------------------------
+// Audit & chain anchoring
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorId       String?  @map("actor_id") @db.Uuid
+  eventType     String   @map("event_type")
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id") @db.Uuid
+  payloadHash   String   @map("payload_hash")
+  payload       Json
+  previousHash  String?  @map("previous_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
+  @@map("audit_events")
+}
+
+model ChainAnchor {
+  id              String            @id @default(uuid()) @db.Uuid
+  batchRoot       String            @map("batch_root")
+  chainId         Int               @map("chain_id")
+  contractAddress String            @map("contract_address")
+  txHash          String?           @map("tx_hash")
+  blockNumber     BigInt?           @map("block_number")
+  status          ChainAnchorStatus @default(pending)
+  eventCount      Int               @map("event_count")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  confirmedAt     DateTime?         @map("confirmed_at")
+
+  @@index([status])
+  @@index([batchRoot])
+  @@map("chain_anchors")
+}
+
+// ---------------------------------------------------------------------------
+// Administration
+// ---------------------------------------------------------------------------
+
+model AdminAction {
+  id          String   @id @default(uuid()) @db.Uuid
+  adminUserId String   @map("admin_user_id") @db.Uuid
+  actionType  String   @map("action_type")
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id") @db.Uuid
+  reason      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  adminUser User @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@index([targetType, targetId])
+  @@map("admin_actions")
+}
