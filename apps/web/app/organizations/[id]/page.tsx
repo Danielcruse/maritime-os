@@ -39,6 +39,27 @@ interface ResolvedSubject {
   displayName: string;
 }
 
+interface ReputationSnapshot {
+  score: string;
+  sampleSize: number;
+  scoreVersion: string;
+  calculatedAt: string;
+  metrics: {
+    onTimeRate: number | null;
+    cancellationRate: number | null;
+    disputeRate: number | null;
+    averageRating: number | null;
+  };
+}
+
+interface Review {
+  id: string;
+  reviewerOrgId: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+}
+
 export default function OrganizationPage() {
   const params = useParams<{ id: string }>();
   const orgId = params.id;
@@ -47,6 +68,8 @@ export default function OrganizationPage() {
   const [myRole, setMyRole] = useState<string | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [reputation, setReputation] = useState<ReputationSnapshot | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,12 +108,16 @@ export default function OrganizationPage() {
       loggedIn
         ? api.get<Credential[]>(`/organizations/${orgId}/credentials`).catch(() => [])
         : Promise.resolve([]),
+      api.get<ReputationSnapshot | null>(`/organizations/${orgId}/reputation`).catch(() => null),
+      api.get<Review[]>(`/organizations/${orgId}/reviews`).catch(() => []),
     ])
-      .then(([orgData, myOrgs, listingsData, credentialsData]) => {
+      .then(([orgData, myOrgs, listingsData, credentialsData, reputationData, reviewsData]) => {
         setOrg(orgData);
         setMyRole(myOrgs.find((o) => o.id === orgId)?.role ?? null);
         setListings(listingsData);
         setCredentials(credentialsData);
+        setReputation(reputationData);
+        setReviews(reviewsData);
       })
       .catch((err) => setError(err instanceof ApiRequestError ? err.apiError.message : "Could not load organization."))
       .finally(() => setLoading(false));
@@ -216,6 +243,44 @@ export default function OrganizationPage() {
       <p>
         <span style={badge}>{org.countryCode}</span> <span style={badge}>{org.verificationStatus}</span>
       </p>
+
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Reputation</h3>
+        {!reputation || reputation.sampleSize < 3 ? (
+          <p style={muted}>
+            Not enough completed assignments yet to calculate a score
+            {reputation ? ` (${reputation.sampleSize} so far, 3 needed)` : ""}.
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: 28, fontWeight: 700, margin: "4px 0" }}>{Number(reputation.score).toFixed(1)} / 100</p>
+            <p style={muted}>
+              Based on {reputation.sampleSize} completed assignment{reputation.sampleSize === 1 ? "" : "s"} · score
+              version {reputation.scoreVersion}
+            </p>
+            <p style={muted}>
+              {reputation.metrics.averageRating !== null &&
+                `Average rating ${reputation.metrics.averageRating.toFixed(1)}/5 · `}
+              {reputation.metrics.onTimeRate !== null &&
+                `${Math.round(reputation.metrics.onTimeRate * 100)}% on time · `}
+              {reputation.metrics.disputeRate !== null && `${Math.round(reputation.metrics.disputeRate * 100)}% disputed`}
+            </p>
+          </>
+        )}
+      </div>
+
+      <h2>Reviews</h2>
+      {reviews.length === 0 && <p style={muted}>No reviews yet.</p>}
+      <ul style={{ listStyle: "none", padding: 0 }}>
+        {reviews.map((r) => (
+          <li key={r.id} style={card}>
+            <strong>{"★".repeat(r.rating)}</strong>
+            <span style={muted}>{"★".repeat(5 - r.rating)}</span>{" "}
+            <span style={muted}>{new Date(r.createdAt).toLocaleDateString()}</span>
+            {r.comment && <p style={{ margin: "4px 0 0" }}>{r.comment}</p>}
+          </li>
+        ))}
+      </ul>
 
       {canManage && org.verificationStatus !== "verified" && (
         <div style={card}>

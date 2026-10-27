@@ -25,7 +25,7 @@ here is production-ready.
 | Audit trail (hash-chained, tamper-evident) | Implemented |
 | Blockchain anchoring | **Stub only** — no network selected, no contract deployed |
 | Object storage / file upload | **Not implemented** — API accepts pre-existing storage keys only |
-| Frontend | Implemented — register/login, dashboard, org management + verification, listing create/publish/apply/award, assignment evidence/confirm/dispute, admin verification queue, credential issue/revoke + a public verification page. No file upload, styling is minimal |
+| Frontend | Implemented — register/login, dashboard, org management + verification, listing create/publish/apply/award, assignment evidence/confirm/dispute/review, admin verification queue, credential issue/revoke + a public verification page, reputation score + reviews on the org page. No file upload, styling is minimal |
 | Security hardening, load testing, backup drills | **Not done** |
 
 Nothing above is a demo pretending to work — every "Implemented" row has

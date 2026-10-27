@@ -46,6 +46,14 @@ interface MyOrg {
   role: string;
 }
 
+interface Review {
+  id: string;
+  reviewerOrgId: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+}
+
 export default function AssignmentPage() {
   const params = useParams<{ id: string }>();
   const assignmentId = params.id;
@@ -61,6 +69,12 @@ export default function AssignmentPage() {
   const [storageKey, setStorageKey] = useState("");
   const [contentHash, setContentHash] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
+
+  const [revieweeReviews, setRevieweeReviews] = useState<Review[]>([]);
+  const [rating, setRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -89,6 +103,41 @@ export default function AssignmentPage() {
 
   const assignedOrgId = myOrgs.find((o) => o.id === assignment?.awardedToOrgId)?.id;
   const employerOrg = myOrgs.find((o) => o.id === listing?.organizationId && (o.role === "owner" || o.role === "admin"));
+  const myReviewingOrgId = assignedOrgId ?? employerOrg?.id;
+  const revieweeOrgId = assignedOrgId ? listing?.organizationId : assignment?.awardedToOrgId;
+  const myExistingReview = revieweeReviews.find((r) => r.reviewerOrgId === myReviewingOrgId);
+
+  useEffect(() => {
+    if (!assignment || assignment.status !== "confirmed" || !revieweeOrgId || !myReviewingOrgId) {
+      setRevieweeReviews([]);
+      return;
+    }
+    api
+      .get<Review[]>(`/organizations/${revieweeOrgId}/reviews`)
+      .then(setRevieweeReviews)
+      .catch(() => setRevieweeReviews([]));
+  }, [assignment, revieweeOrgId, myReviewingOrgId]);
+
+  async function onSubmitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (!assignment || !myReviewingOrgId) return;
+    setReviewError(null);
+    setSubmittingReview(true);
+    try {
+      await api.post(`/assignments/${assignment.id}/reviews/organizations/${myReviewingOrgId}`, {
+        rating,
+        comment: reviewComment || undefined,
+      });
+      setActionMsg("Review submitted.");
+      if (revieweeOrgId) {
+        api.get<Review[]>(`/organizations/${revieweeOrgId}/reviews`).then(setRevieweeReviews).catch(() => {});
+      }
+    } catch (err) {
+      setReviewError(err instanceof ApiRequestError ? err.apiError.message : "Could not submit review.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  }
 
   async function onSubmitEvidence(e: React.FormEvent) {
     e.preventDefault();
@@ -200,6 +249,43 @@ export default function AssignmentPage() {
               Open dispute
             </button>
           </form>
+        </div>
+      )}
+
+      {myReviewingOrgId && assignment.status === "confirmed" && (
+        <div style={card}>
+          <h3 style={{ marginTop: 0 }}>Leave a review</h3>
+          {myExistingReview ? (
+            <p style={muted}>
+              You already reviewed the other party: {"★".repeat(myExistingReview.rating)}
+              {myExistingReview.comment && ` — "${myExistingReview.comment}"`}
+            </p>
+          ) : (
+            <form onSubmit={onSubmitReview} style={form}>
+              <div>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setRating(n)}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 24, color: n <= rating ? "#f5c518" : "#3a4a63" }}
+                    aria-label={`${n} star${n === 1 ? "" : "s"}`}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <textarea
+                placeholder="Comment (optional)"
+                value={reviewComment}
+                onChange={(e) => setReviewComment(e.target.value)}
+              />
+              <button type="submit" style={button} disabled={submittingReview}>
+                {submittingReview ? "Submitting…" : "Submit review"}
+              </button>
+            </form>
+          )}
+          {reviewError && <p style={errorText}>{reviewError}</p>}
         </div>
       )}
 

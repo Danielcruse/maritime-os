@@ -132,6 +132,16 @@ was used instead of `docker compose up -d db`:
   and the same verification page updated to "✗ Not currently valid" while
   still reporting the signature as intact — confirming revocation is
   tracked as state, not by breaking the signature.
+- Reviews and reputation (no new endpoints needed — the data was already
+  there, just not surfaced): as the employer on the already-confirmed
+  grain-shipment assignment, left the carrier org a real review (4 stars
+  + a comment) through the new "Leave a review" form, confirmed the form
+  correctly swapped to "you already reviewed" on reload instead of
+  allowing a duplicate, and confirmed the review and an honest "not
+  enough completed assignments yet (1 so far, 3 needed)" reputation
+  message both render on the carrier's public organization page — the
+  score-suppression behavior in `reputation-calculator.ts` working
+  exactly as designed, not just unit-tested.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anything that would need object storage or a live blockchain RPC
