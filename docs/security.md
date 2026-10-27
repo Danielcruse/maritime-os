@@ -11,10 +11,14 @@ with direct security consequence are repeated here so they aren't missed:
   organization can issue a credential to any user. Do not treat an issued
   credential as meaning more than "a verified org on this platform typed
   this in," until that gap is closed.
-- No file upload endpoint exists yet, so there is nothing here to validate
-  MIME type, size, or malware status — `storageKey` fields are trusted
-  opaque strings. Do not wire a real upload flow to this API without adding
-  that validation first.
+- File upload (`POST /uploads`) checks only extension (a small allowlist)
+  and a 20MB size cap — it does not sniff real content type or scan for
+  malware. `GET /uploads/:storageKey` requires login but not that the
+  caller is actually a party to whatever the file is evidence for; storage
+  keys are UUID-prefixed (unguessable) but that is not real authorization.
+  Storage itself is local disk (see `docs/architecture.md`), with none of
+  an object store's durability or access-tiering. Harden all three before
+  any shared deployment.
 - Secrets: `.env.example` lists every secret this app needs; none has a
   default value baked into code. `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`
   and the credential signing keypair must be generated per-environment

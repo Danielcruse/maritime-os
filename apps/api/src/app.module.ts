@@ -16,6 +16,7 @@ import { ReputationModule } from "./reputation/reputation.module";
 import { PointsModule } from "./points/points.module";
 import { AdminModule } from "./admin/admin.module";
 import { ChainModule } from "./chain/chain.module";
+import { StorageModule } from "./storage/storage.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -36,6 +37,7 @@ import { HealthController } from "./health.controller";
     PointsModule,
     AdminModule,
     ChainModule,
+    StorageModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

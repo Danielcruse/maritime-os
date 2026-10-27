@@ -24,8 +24,8 @@ here is production-ready.
 | Points ledger (idempotent, reversible) | Implemented |
 | Audit trail (hash-chained, tamper-evident) | Implemented |
 | Blockchain anchoring | **Stub only** — no network selected, no contract deployed |
-| Object storage / file upload | **Not implemented** — API accepts pre-existing storage keys only |
-| Frontend | Implemented — register/login, dashboard, org management + verification, listing create/publish/apply/award, assignment evidence/confirm/dispute/review, admin verification queue, credential issue/revoke + a public verification page, reputation score + reviews on the org page. No file upload, styling is minimal |
+| Object storage / file upload | Implemented on **local disk only** — `POST /uploads` + `GET /uploads/:storageKey`, no S3/cloud storage wired up (see known limitations) |
+| Frontend | Implemented — register/login, dashboard, org management + verification (with real document upload), listing create/publish/apply/award, assignment evidence/confirm/dispute/review (with real evidence file upload), admin verification queue (with document view links), credential issue/revoke + evidence upload + a public verification page, reputation score + reviews on the org page. Styling is minimal |
 | Security hardening, load testing, backup drills | **Not done** |
 
 Nothing above is a demo pretending to work — every "Implemented" row has

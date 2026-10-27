@@ -56,6 +56,14 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDecided]);
 
+  async function onViewDocument(storageKey: string) {
+    try {
+      await api.openFile(storageKey);
+    } catch (err) {
+      setActionError(err instanceof ApiRequestError ? err.apiError.message : "Could not open this document.");
+    }
+  }
+
   async function onDecide(caseId: string, decision: "approved" | "rejected" | "more_info_requested") {
     setActionError(null);
     setActionMsg(null);
@@ -112,8 +120,21 @@ export default function AdminPage() {
             <strong>{c.organizationName}</strong> <span style={badge}>{c.organizationCountryCode}</span>{" "}
             <span style={badge}>{c.decision}</span>
             <p style={muted}>
-              Submitted documents: {c.documentKeys.join(", ") || "(none)"} ·{" "}
-              {new Date(c.createdAt).toLocaleString()}
+              Submitted documents:{" "}
+              {c.documentKeys.length === 0
+                ? "(none)"
+                : c.documentKeys.map((key, i) => (
+                    <span key={key}>
+                      {i > 0 && ", "}
+                      <button
+                        onClick={() => onViewDocument(key)}
+                        style={{ background: "none", border: "none", color: "#2f6fed", cursor: "pointer", padding: 0 }}
+                      >
+                        {key.slice(key.indexOf("__") + 2)}
+                      </button>
+                    </span>
+                  ))}{" "}
+              · {new Date(c.createdAt).toLocaleString()}
             </p>
             {c.notes && <p style={muted}>Notes: {c.notes}</p>}
 

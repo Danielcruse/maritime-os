@@ -1,4 +1,15 @@
-import { ArrayMaxSize, IsArray, IsISO8601, IsOptional, IsString, IsUUID, Length } from "class-validator";
+import { Type } from "class-transformer";
+import { ArrayMaxSize, IsArray, IsISO8601, IsOptional, IsString, IsUUID, Length, ValidateNested } from "class-validator";
+
+export class CredentialEvidenceFileDto {
+  @IsString()
+  @Length(1, 500)
+  storageKey!: string;
+
+  @IsString()
+  @Length(32, 128)
+  contentHash!: string;
+}
 
 export class IssueCredentialDto {
   @IsUUID()
@@ -15,6 +26,7 @@ export class IssueCredentialDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)
-  @IsString({ each: true })
-  evidenceStorageKeys?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => CredentialEvidenceFileDto)
+  evidence?: CredentialEvidenceFileDto[];
 }

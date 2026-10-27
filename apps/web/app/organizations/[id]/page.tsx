@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { api, ApiRequestError } from "../../../lib/api";
+import { api, ApiRequestError, UploadedFile } from "../../../lib/api";
 import { isLoggedIn } from "../../../lib/auth";
 import { card, muted, errorText, successText, button, secondaryButton, form, badge } from "../../../lib/ui";
 
@@ -31,6 +31,7 @@ interface Credential {
   subjectDisplayName?: string;
   issuedAt: string;
   expiresAt: string | null;
+  evidenceStorageKeys: string[];
 }
 
 interface ResolvedSubject {
@@ -79,12 +80,14 @@ export default function OrganizationPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [credentialType, setCredentialType] = useState("");
   const [credentialExpiresAt, setCredentialExpiresAt] = useState("");
+  const [credentialEvidenceFiles, setCredentialEvidenceFiles] = useState<FileList | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const [revokeReasonByCredential, setRevokeReasonByCredential] = useState<Record<string, string>>({});
   const [credentialActionError, setCredentialActionError] = useState<string | null>(null);
 
-  const [docKeys, setDocKeys] = useState("");
+  const [verificationFiles, setVerificationFiles] = useState<FileList | null>(null);
+  const [submittingVerification, setSubmittingVerification] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
 
@@ -132,18 +135,25 @@ export default function OrganizationPage() {
 
   async function onSubmitVerification(e: React.FormEvent) {
     e.preventDefault();
+    if (!verificationFiles || verificationFiles.length === 0) {
+      setVerifyError("Choose at least one document to upload.");
+      return;
+    }
     setVerifyError(null);
+    setSubmittingVerification(true);
     try {
+      const uploaded: UploadedFile[] = await Promise.all(
+        Array.from(verificationFiles).map((file) => api.upload(file)),
+      );
       await api.post(`/organizations/${orgId}/verification`, {
-        documentKeys: docKeys
-          .split(",")
-          .map((k) => k.trim())
-          .filter(Boolean),
+        documentKeys: uploaded.map((f) => f.storageKey),
       });
-      setVerifyMsg("Verification case submitted — an admin will review it.");
-      setDocKeys("");
+      setVerifyMsg(`Verification case submitted with ${uploaded.length} document(s) — an admin will review it.`);
+      setVerificationFiles(null);
     } catch (err) {
       setVerifyError(err instanceof ApiRequestError ? err.apiError.message : "Could not submit verification.");
+    } finally {
+      setSubmittingVerification(false);
     }
   }
 
@@ -201,20 +211,33 @@ export default function OrganizationPage() {
     setIssueError(null);
     setIssuing(true);
     try {
+      const evidence: UploadedFile[] = credentialEvidenceFiles
+        ? await Promise.all(Array.from(credentialEvidenceFiles).map((file) => api.upload(file)))
+        : [];
       await api.post(`/organizations/${orgId}/credentials`, {
         subjectUserId: resolvedSubject.userId,
         credentialType,
         expiresAt: credentialExpiresAt ? new Date(credentialExpiresAt).toISOString() : undefined,
+        evidence: evidence.map((f) => ({ storageKey: f.storageKey, contentHash: f.contentHash })),
       });
       setSubjectMaritimeId("");
       setResolvedSubject(null);
       setCredentialType("");
       setCredentialExpiresAt("");
+      setCredentialEvidenceFiles(null);
       load();
     } catch (err) {
       setIssueError(err instanceof ApiRequestError ? err.apiError.message : "Could not issue credential.");
     } finally {
       setIssuing(false);
+    }
+  }
+
+  async function onViewFile(storageKey: string) {
+    try {
+      await api.openFile(storageKey);
+    } catch (err) {
+      setCredentialActionError(err instanceof ApiRequestError ? err.apiError.message : "Could not open this file.");
     }
   }
 
@@ -285,18 +308,16 @@ export default function OrganizationPage() {
       {canManage && org.verificationStatus !== "verified" && (
         <div style={card}>
           <h3 style={{ marginTop: 0 }}>Submit for verification</h3>
-          <p style={muted}>
-            No document upload yet (see known limitations) — enter placeholder storage keys, comma-separated.
-          </p>
+          <p style={muted}>Upload registration documents (PDF, DOC/DOCX, or an image) for an admin to review.</p>
           <form onSubmit={onSubmitVerification} style={form}>
             <input
-              placeholder="docs/registration.pdf, docs/license.pdf"
-              value={docKeys}
-              onChange={(e) => setDocKeys(e.target.value)}
-              required
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+              onChange={(e) => setVerificationFiles(e.target.files)}
             />
-            <button type="submit" style={secondaryButton}>
-              Submit verification case
+            <button type="submit" style={secondaryButton} disabled={submittingVerification}>
+              {submittingVerification ? "Uploading…" : "Submit verification case"}
             </button>
           </form>
           {verifyMsg && <p style={successText}>{verifyMsg}</p>}
@@ -380,6 +401,22 @@ export default function OrganizationPage() {
                 <a href={`/credentials/${c.id}`} style={{ color: "#2f6fed" }}>
                   View verification page
                 </a>
+                {c.evidenceStorageKeys.length > 0 && (
+                  <p style={muted}>
+                    Evidence:{" "}
+                    {c.evidenceStorageKeys.map((key, i) => (
+                      <span key={key}>
+                        {i > 0 && ", "}
+                        <button
+                          onClick={() => onViewFile(key)}
+                          style={{ background: "none", border: "none", color: "#2f6fed", cursor: "pointer", padding: 0 }}
+                        >
+                          file {i + 1}
+                        </button>
+                      </span>
+                    ))}
+                  </p>
+                )}
                 {c.status === "active" && (
                   <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                     <input
@@ -438,6 +475,16 @@ export default function OrganizationPage() {
                       type="date"
                       value={credentialExpiresAt}
                       onChange={(e) => setCredentialExpiresAt(e.target.value)}
+                      style={{ display: "block", marginTop: 4 }}
+                    />
+                  </label>
+                  <label style={muted}>
+                    Supporting evidence (optional)
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                      onChange={(e) => setCredentialEvidenceFiles(e.target.files)}
                       style={{ display: "block", marginTop: 4 }}
                     />
                   </label>

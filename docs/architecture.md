@@ -69,11 +69,27 @@ transaction" rule.
   that root to an actual EVM network, and no contract exists yet in
   `contracts/`. No network has been selected. Treat every `ChainAnchor` row
   this code creates as permanently pending until that work lands.
-- **Object storage is not integrated.** `storageKey` fields on
-  `CredentialEvidence` and `CompletionEvidence` are opaque strings the API
-  trusts the caller to have already uploaded correctly — there is no
-  signed-upload endpoint yet, so nothing currently validates file type,
-  size, or malware status.
+- **Uploads exist but are local-disk only, not real object storage.**
+  `StorageService` (`apps/api/src/storage/storage.service.ts`) writes to
+  `.local-data/uploads/` and is what every `storageKey` across
+  `VerificationCase.documentKeys`, `CredentialEvidence`, and
+  `CompletionEvidence` now actually points to — files really are uploaded,
+  hashed (sha256, computed server-side, not client-supplied) and served
+  back. What it does NOT have: durability beyond this one disk, replication,
+  virus/malware scanning, or any production-grade storage tier. Swap it for
+  an S3-backed implementation of the same `{storageKey, contentHash}`
+  interface before any shared deployment.
+- **File downloads are authenticated, not authorized.** `GET
+  /uploads/:storageKey` requires a valid JWT but does not check that the
+  caller is actually a party to the credential, verification case, or
+  assignment the file belongs to — any logged-in user who learns a storage
+  key (they are UUID-prefixed, so not guessable, but nothing stops a
+  legitimate viewer from sharing one) can fetch it. This matches the
+  project's existing "no issuer-authorization tier yet" posture elsewhere;
+  tighten it together with that work.
+- **Uploads are capped at 20MB and a small extension allowlist** (pdf, doc,
+  docx, png, jpg, jpeg, txt) — enough to stop obviously wrong files, not a
+  substitute for real content-type sniffing or malware scanning.
 - **Reputation and points formulas are first-pass, not validated against
   real transaction data.** They are versioned (`REPUTATION_SCORE_VERSION`,
   `POINTS_RULES_VERSION`) so they can change without corrupting historical
@@ -142,7 +158,23 @@ was used instead of `docker compose up -d db`:
   message both render on the carrier's public organization page — the
   score-suppression behavior in `reputation-calculator.ts` working
   exactly as designed, not just unit-tested.
+- Real file upload/download, end to end, at all three places that take
+  evidence: uploaded a real PDF through the "Submit for verification" form
+  (a brand-new org), confirmed the exact filename and a working view link
+  appear on the admin verification queue, and confirmed `GET
+  /uploads/:storageKey` returns the exact bytes with the right
+  `Content-Type` (checked by `curl`, headers and body, before touching the
+  UI). Did the same for a credential's optional evidence attachment and
+  for an assignment's completion evidence — for the latter, computed
+  sha256 of the uploaded content locally and confirmed it matched the hash
+  the server reported byte-for-byte, proving the content hash is real and
+  server-computed, not a client-supplied placeholder like it was before
+  this feature existed. Also confirmed the boundary cases: no token → 401,
+  a path-traversal attempt in the storage key → 404 (not a crash or a
+  leaked file), and a disallowed extension (`.exe`) → a clean 400.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
-and anything that would need object storage or a live blockchain RPC
-endpoint (neither is configured — see "Known limitations" above).
+and anything that would need a live blockchain RPC endpoint (not
+configured — see "Known limitations" above). Object storage now has a
+real local-disk implementation (see above) but has not been swapped for
+an actual cloud object store.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { api, ApiRequestError } from "../../../lib/api";
+import { api, ApiRequestError, UploadedFile } from "../../../lib/api";
 import { isLoggedIn } from "../../../lib/auth";
 import { card, muted, errorText, successText, button, secondaryButton, form, badge } from "../../../lib/ui";
 
@@ -66,8 +66,8 @@ export default function AssignmentPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  const [storageKey, setStorageKey] = useState("");
-  const [contentHash, setContentHash] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [submittingEvidence, setSubmittingEvidence] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
 
   const [revieweeReviews, setRevieweeReviews] = useState<Review[]>([]);
@@ -141,19 +141,30 @@ export default function AssignmentPage() {
 
   async function onSubmitEvidence(e: React.FormEvent) {
     e.preventDefault();
-    if (!assignedOrgId || !assignment) return;
+    if (!assignedOrgId || !assignment || !evidenceFile) return;
     setActionError(null);
+    setSubmittingEvidence(true);
     try {
+      const uploaded: UploadedFile = await api.upload(evidenceFile);
       await api.post(`/assignments/${assignment.id}/evidence/organizations/${assignedOrgId}`, {
-        storageKey,
-        contentHash,
+        storageKey: uploaded.storageKey,
+        contentHash: uploaded.contentHash,
       });
-      setStorageKey("");
-      setContentHash("");
+      setEvidenceFile(null);
       setActionMsg("Evidence submitted.");
       load();
     } catch (err) {
       setActionError(err instanceof ApiRequestError ? err.apiError.message : "Could not submit evidence.");
+    } finally {
+      setSubmittingEvidence(false);
+    }
+  }
+
+  async function onViewEvidence(storageKey: string) {
+    try {
+      await api.openFile(storageKey);
+    } catch (err) {
+      setActionError(err instanceof ApiRequestError ? err.apiError.message : "Could not open this file.");
     }
   }
 
@@ -204,22 +215,16 @@ export default function AssignmentPage() {
       {assignedOrgId && (assignment.status === "active" || assignment.status === "evidence_submitted") && (
         <div style={card}>
           <h3 style={{ marginTop: 0 }}>Submit completion evidence</h3>
-          <p style={muted}>No file upload yet — enter a placeholder storage key and content hash.</p>
+          <p style={muted}>Upload a photo, signed document, or other proof of delivery.</p>
           <form onSubmit={onSubmitEvidence} style={form}>
             <input
-              placeholder="Storage key (e.g. evidence/pod.pdf)"
-              value={storageKey}
-              onChange={(e) => setStorageKey(e.target.value)}
+              type="file"
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+              onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)}
               required
             />
-            <input
-              placeholder="Content hash (sha256 hex, 32-128 chars)"
-              value={contentHash}
-              onChange={(e) => setContentHash(e.target.value)}
-              required
-            />
-            <button type="submit" style={button}>
-              Submit evidence
+            <button type="submit" style={button} disabled={submittingEvidence || !evidenceFile}>
+              {submittingEvidence ? "Uploading…" : "Submit evidence"}
             </button>
           </form>
         </div>
@@ -297,7 +302,15 @@ export default function AssignmentPage() {
       <ul style={{ listStyle: "none", padding: 0 }}>
         {assignment.evidence.map((ev) => (
           <li key={ev.id} style={card}>
-            {ev.storageKey} <small style={muted}>({ev.contentHash.slice(0, 12)}…)</small>
+            <button
+              onClick={() => onViewEvidence(ev.storageKey)}
+              style={{ background: "none", border: "none", color: "#2f6fed", cursor: "pointer", padding: 0 }}
+            >
+              {ev.storageKey.slice(ev.storageKey.indexOf("__") + 2)}
+            </button>{" "}
+            <small style={muted}>
+              ({ev.contentHash.slice(0, 12)}… · {new Date(ev.createdAt).toLocaleString()})
+            </small>
           </li>
         ))}
       </ul>

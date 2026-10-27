@@ -62,12 +62,12 @@ export class CredentialsService {
         },
       });
 
-      if (dto.evidenceStorageKeys?.length) {
+      if (dto.evidence?.length) {
         await tx.credentialEvidence.createMany({
-          data: dto.evidenceStorageKeys.map((key) => ({
+          data: dto.evidence.map((file) => ({
             credentialId,
-            storageKey: key,
-            contentHash: payloadHash, // placeholder until per-file hashing lands
+            storageKey: file.storageKey,
+            contentHash: file.contentHash,
           })),
         });
       }
@@ -121,13 +121,17 @@ export class CredentialsService {
   async listForOrganization(issuerOrgId: string) {
     const credentials = await this.prisma.credential.findMany({
       where: { issuerOrgId },
-      include: { subject: { select: { profile: { select: { maritimeId: true, displayName: true } } } } },
+      include: {
+        subject: { select: { profile: { select: { maritimeId: true, displayName: true } } } },
+        evidence: { select: { storageKey: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
-    return credentials.map(({ subject, ...c }) => ({
+    return credentials.map(({ subject, evidence, ...c }) => ({
       ...c,
       subjectMaritimeId: subject.profile?.maritimeId,
       subjectDisplayName: subject.profile?.displayName,
+      evidenceStorageKeys: evidence.map((e) => e.storageKey),
     }));
   }
 
