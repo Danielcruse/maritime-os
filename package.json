@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Maritime OS - maritime marketplace, identity and trust platform (MVP)",
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -17,10 +18,12 @@
     "prisma:migrate": "prisma migrate dev --schema database/prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema database/prisma/schema.prisma",
     "prisma:seed": "node --experimental-strip-types database/seeds/seed.ts",
+    "local-db": "node scripts/local-db.mjs",
     "dev:api": "npm run start:dev -w apps/api",
     "dev:web": "npm run dev -w apps/web"
   },
   "devDependencies": {
+    "embedded-postgres": "^17.10.0-beta.17",
     "prisma": "^5.22.0",
     "typescript": "^5.6.3"
   },
@@ -32,6 +35,7 @@
     "@prisma/client@5.22.0": true,
     "@prisma/engines@5.22.0": true,
     "argon2@0.41.1": true,
-    "prisma@5.22.0": true
+    "prisma@5.22.0": true,
+    "@embedded-postgres/windows-x64@17.10.0-beta.17": true
   }
 }

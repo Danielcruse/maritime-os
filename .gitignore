@@ -9,4 +9,5 @@ coverage/
 .turbo/
 *.tsbuildinfo
 database/prisma/migrations/dev.db
+.local-data/
 .DS_Store

@@ -150,7 +150,10 @@ describe("Marketplace lifecycle (e2e)", () => {
       .get("/api/v1/me/points")
       .set("Authorization", `Bearer ${carrier.token}`)
       .expect(200);
-    expect(pointsRes.body.data.balance).toBe("50.00");
+    // Prisma's Decimal (decimal.js) serializes to its shortest exact
+    // representation, dropping trailing zeros — "50.00" in Postgres
+    // becomes "50" over the wire, not a precision loss.
+    expect(pointsRes.body.data.balance).toBe("50");
     expect(pointsRes.body.data.entries).toHaveLength(1);
 
     const auditRes = await request(app.getHttpServer())

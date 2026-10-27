@@ -63,8 +63,14 @@ async function main() {
     },
   });
 
-  await prisma.freightListing.create({
-    data: {
+  // Fixed id so re-running this script is idempotent instead of piling up
+  // duplicate listings — freight_listings has no natural unique key to
+  // upsert on otherwise.
+  await prisma.freightListing.upsert({
+    where: { id: "00000000-0000-0000-0000-000000005e01" },
+    update: {},
+    create: {
+      id: "00000000-0000-0000-0000-000000005e01",
       organizationId: employerOrg.id,
       title: "Container freight forwarding — Lagos to Tema",
       origin: { countryCode: "NG", portCode: "NGLOS" },

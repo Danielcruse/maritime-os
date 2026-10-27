@@ -50,11 +50,24 @@ cp .env.example .env
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-Start Postgres + Redis:
+Start Postgres (pick one):
 
 ```bash
+# Option A — Docker (preferred if you have it)
 docker compose up -d
+
+# Option B — no Docker available: a local, file-backed Postgres cluster
+# via the `embedded-postgres` dev dependency (no system install, no admin
+# rights). This is what was actually used to verify this project end to
+# end, since the sandbox it was built in had neither Docker nor a local
+# Postgres service. Leave it running in its own terminal.
+node scripts/local-db.mjs
 ```
+
+Either way, make sure `DATABASE_URL` in `.env` points at it — Option B uses
+`postgresql://maritime:maritime_dev_pw@localhost:5432/maritime_os`.
+Redis is only needed once a background job queue is actually wired up
+(not yet, in this MVP) — skip it for local runs.
 
 Apply the schema and seed demo data:
 
@@ -71,7 +84,7 @@ npm run dev:api
 ```
 
 API docs (Swagger/OpenAPI): http://localhost:3001/api/docs
-Health check: http://localhost:3001/health
+Health check: http://localhost:3001/api/v1/health
 
 Run the web app (separate terminal):
 
