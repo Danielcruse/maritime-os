@@ -23,7 +23,7 @@ here is production-ready.
 | Reputation (versioned, evidence-based calculation) | Implemented |
 | Points ledger (idempotent, reversible) | Implemented |
 | Audit trail (hash-chained, tamper-evident) | Implemented |
-| Blockchain anchoring | Implemented against a **local dev chain only** — real contract, real signed transactions, real on-chain per-event Merkle inclusion proofs (not just whole-batch recompute), reorg detection, no public testnet/mainnet (see known limitations) |
+| Blockchain anchoring | Implemented against a **local dev chain only** — real contract, real signed transactions, real on-chain per-event Merkle inclusion proofs (not just whole-batch recompute), reorg detection, a real in-process scheduler (no more manual-only triggers), no public testnet/mainnet (see known limitations) |
 | Object storage / file upload | Implemented on **local disk only** — `POST /uploads` + `GET /uploads/:storageKey`, no S3/cloud storage wired up (see known limitations) |
 | Frontend | Implemented — register/login, dashboard, org management + verification (with real document upload), listing create/publish/apply/award, assignment evidence/confirm/dispute/review (with real evidence file upload), admin verification queue (with document view links), dispute-resolution queue, and a chain-anchor trigger/reconcile, credential issue/revoke + evidence upload + a public verification page, reputation score + reviews on the org page, a public chain-anchor page that independently recomputes and checks the Merkle root in the browser, and a hash-chain audit-trail viewer per entity showing which events are anchored. Styling is minimal |
 | Security hardening, load testing, backup drills | **Not done** |
@@ -162,12 +162,17 @@ CHAIN_ANCHOR_CONTRACT_ADDRESS=<address from the deploy output>
 CHAIN_SIGNER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ```
 
-Restart the API, then as an admin user (`ADMIN_USER_IDS`), either call
-`POST /api/v1/admin/chain/anchor` or click **"Anchor pending events now"**
-on `/admin`. Check the result at `/chain/anchors/:id` — that page
-recomputes the Merkle root client-side from the public event-hash list
-and checks it against the anchored root, so it isn't just trusting the
-API's word for it. You can also check the chain directly:
+Restart the API and a background scheduler takes over from here —
+every `CHAIN_SCHEDULER_INTERVAL_SECONDS` (default 120; `0` disables it)
+it anchors anything pending, reconciles anything unconfirmed, and checks
+confirmed anchors for reorgs, with no one needing to click anything. For
+an immediate run instead of waiting, as an admin user (`ADMIN_USER_IDS`)
+either call `POST /api/v1/admin/chain/anchor` or click **"Anchor pending
+events now"** on `/admin`. Check the result at `/chain/anchors/:id` —
+that page recomputes the Merkle root client-side from the public
+event-hash list and checks it against the anchored root, so it isn't
+just trusting the API's word for it. You can also check the chain
+directly:
 
 ```bash
 cast call <contract address> "anchorCount()(uint256)" --rpc-url http://127.0.0.1:8545

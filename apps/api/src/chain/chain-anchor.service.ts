@@ -45,6 +45,11 @@ export class ChainAnchorService {
     );
   }
 
+  /** Public read of the same check, for callers (e.g. the scheduler) deciding whether to act at all. */
+  isConfigured(): boolean {
+    return this.isChainConfigured();
+  }
+
   private getContract(): Contract {
     const rpcUrl = this.configService.get<string>("CHAIN_RPC_URL")!;
     const contractAddress = this.configService.get<string>("CHAIN_ANCHOR_CONTRACT_ADDRESS")!;

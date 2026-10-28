@@ -85,28 +85,31 @@ transaction" rule.
   `submitter` address (the API's signing key), not a multi-sig or
   DAO-governed set, so anyone who steals that key can submit false
   anchors (they can't rewrite history, since a wrong root just fails
-  independent recomputation, but they could submit garbage); (3)
-  reconciliation is read-triggered and manually triggerable, not a
-  scheduled job — a `pending` anchor nobody ever looks at again stays
-  `pending` forever, because no job queue is wired up yet; (4) the local
-  chain is ephemeral — `anvil`'s state is gone the moment it restarts, so
-  every anchor's on-chain existence is only as durable as that one
-  process. Swap `CHAIN_RPC_URL` for a real network's endpoint, fund a
-  real signer, and address all four before trusting an anchor as
+  independent recomputation, but they could submit garbage); (3) the
+  local chain is ephemeral — `anvil`'s state is gone the moment it
+  restarts, so every anchor's on-chain existence is only as durable as
+  that one process. Swap `CHAIN_RPC_URL` for a real network's endpoint,
+  fund a real signer, and address all three before trusting an anchor as
   evidence of anything.
-- **Reorg detection now exists** (`ChainAnchorService.detectReorgs`,
-  `POST /admin/chain/detect-reorgs`) — it records each anchor's block
-  HASH, not just its number, at confirmation time, then compares that
-  hash to what the chain currently reports for that block number;
-  divergence means the block was orphaned, and the anchor gets flagged
-  `reorg_affected` instead of silently staying `confirmed`. Like
-  reconciliation, it's triggered manually or on-demand, not on a
-  schedule — same gap as (3) above. It also only covers anchors
-  confirmed AFTER this field was added; anchors confirmed earlier have
-  no recorded block hash to compare against and are correctly skipped,
-  not guessed at. It does not attempt recovery (resubmitting an
-  orphaned anchor's transaction) — that's a deliberate next step, not
-  done here.
+- **A real scheduler now exists** (`ChainSchedulerService`, a plain
+  `setInterval` lifecycle hook — no job queue, since none is wired up
+  anywhere else in this MVP) — every `CHAIN_SCHEDULER_INTERVAL_SECONDS`
+  (default 120, `0` disables it), it anchors any unanchored audit
+  events, reconciles any pending anchors, and checks confirmed ones for
+  reorgs, with no human needing to click anything. `POST
+  /admin/chain/anchor|reconcile|detect-reorgs` and their `/admin` buttons
+  still exist for an immediate, on-demand run. This closes what used to
+  be two separate "manually triggerable, not scheduled" gaps.
+- **Reorg detection** (`ChainAnchorService.detectReorgs`) — records each
+  anchor's block HASH, not just its number, at confirmation time, then
+  compares that hash to what the chain currently reports for that block
+  number; divergence means the block was orphaned, and the anchor gets
+  flagged `reorg_affected` instead of silently staying `confirmed`. It
+  only covers anchors confirmed AFTER this field was added; anchors
+  confirmed earlier have no recorded block hash to compare against and
+  are correctly skipped, not guessed at. It does not attempt recovery
+  (resubmitting an orphaned anchor's transaction) — that's a deliberate
+  next step, not done here.
 - **Per-event Merkle inclusion proofs are real, including on-chain
   verification — but only for anchors submitted after `AnchorRegistry`
   gained `verifyInclusion`.** `GET /chain/anchors/:id/proof/:eventId`
@@ -324,6 +327,21 @@ was used instead of `docker compose up -d db`:
   and running the check again afterward correctly reported 0 anchors
   left to check, since the only one with a tracked block hash had
   already been flagged.
+- The scheduler, watched actually fire on its own — not just read as
+  code and trusted. Set `CHAIN_SCHEDULER_INTERVAL_SECONDS=20`, restarted
+  the API, confirmed its startup log ("Chain scheduler running every
+  20s"), registered a user, and confirmed via the audit-trail endpoint
+  that the resulting event's `chainAnchorId` was `null` — before the
+  scheduler had a chance to run. Polled without ever calling any
+  anchor/admin endpoint myself; the event came back anchored on its own.
+  Registered a second user and watched the server log print a SECOND
+  independent "Auto-anchored" line 80 seconds (four full intervals)
+  after the first, proving it's genuinely recurring, not a one-shot
+  startup task. Restarted the API with the env var unset afterward and
+  confirmed it falls back to the documented 120s default. Left it
+  running at that default for the rest of this session — by the time
+  work resumed after a break, `anvil`'s block number had kept climbing
+  on its own with no one anchoring by hand.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anchoring against anything other than this local `anvil` chain.
