@@ -57,6 +57,28 @@ export class AuditService {
     });
   }
 
+  /** Oldest-first, capped batch of events never folded into a chain anchor yet. */
+  async findUnanchored(limit: number) {
+    return this.prisma.auditEvent.findMany({
+      where: { chainAnchorId: null },
+      orderBy: { createdAt: "asc" },
+      take: limit,
+    });
+  }
+
+  async markAnchored(eventIds: string[], chainAnchorId: string) {
+    await this.prisma.auditEvent.updateMany({ where: { id: { in: eventIds } }, data: { chainAnchorId } });
+  }
+
+  /** Events covered by one anchor — metadata only, never the raw payload (may hold free-text notes). */
+  async listForAnchor(chainAnchorId: string) {
+    return this.prisma.auditEvent.findMany({
+      where: { chainAnchorId },
+      select: { id: true, eventType: true, entityType: true, entityId: true, payloadHash: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
   /**
    * Verifies the hash chain for a contiguous slice of events (by id order).
    * Returns false the moment a row's stored hash doesn't match what its own

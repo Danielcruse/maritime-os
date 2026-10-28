@@ -5,6 +5,15 @@ import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 
+// Prisma maps `BigInt` columns (e.g. ChainAnchor.blockNumber) to native
+// BigInt, which JSON.stringify refuses to serialize by default. Every
+// blockNumber comfortably fits in a JS number, but returning it as a string
+// is the safe, lossless choice for any chain this ever points at.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ["error", "warn", "log"],

@@ -23,6 +23,21 @@ with direct security consequence are repeated here so they aren't missed:
   default value baked into code. `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`
   and the credential signing keypair must be generated per-environment
   (commands in the root README) and never committed.
+- `CHAIN_SIGNER_PRIVATE_KEY` in local dev is `anvil`'s well-known, publicly
+  documented first dev-account key — intentionally, since it only ever
+  signs transactions on a throwaway local chain with play-money ETH. It is
+  committed to the README as a known, public value. **Generate and fund a
+  real signer before pointing `CHAIN_RPC_URL` at any network that isn't a
+  local `anvil` instance** — reusing this key anywhere real would let
+  anyone submit anchor transactions as "you." `AnchorRegistry.sol` also
+  trusts a single `submitter` address with no multi-sig or governance;
+  see `docs/architecture.md` "Known limitations" for the full list of
+  gaps before this means anything as evidence.
+- `POST /admin/chain/anchor` is admin-gated (same `AdminGuard` allowlist
+  caveat above) but has no rate limit of its own beyond the global
+  default, and batches up to 500 events per call — on a real network with
+  gas costs, an attacker who gained admin access could run up real
+  transaction fees by spamming it.
 - Rate limiting is a single global default (`ThrottlerModule`, 120 req/min)
   plus a tighter limit on `/auth/register` and `/auth/login`. Not tuned,
   not reviewed against realistic abuse patterns.

@@ -23,9 +23,9 @@ here is production-ready.
 | Reputation (versioned, evidence-based calculation) | Implemented |
 | Points ledger (idempotent, reversible) | Implemented |
 | Audit trail (hash-chained, tamper-evident) | Implemented |
-| Blockchain anchoring | **Stub only** — no network selected, no contract deployed |
+| Blockchain anchoring | Implemented against a **local dev chain only** — real contract, real signed transactions, no public testnet/mainnet (see known limitations) |
 | Object storage / file upload | Implemented on **local disk only** — `POST /uploads` + `GET /uploads/:storageKey`, no S3/cloud storage wired up (see known limitations) |
-| Frontend | Implemented — register/login, dashboard, org management + verification (with real document upload), listing create/publish/apply/award, assignment evidence/confirm/dispute/review (with real evidence file upload), admin verification queue (with document view links) and dispute-resolution queue, credential issue/revoke + evidence upload + a public verification page, reputation score + reviews on the org page. Styling is minimal |
+| Frontend | Implemented — register/login, dashboard, org management + verification (with real document upload), listing create/publish/apply/award, assignment evidence/confirm/dispute/review (with real evidence file upload), admin verification queue (with document view links), dispute-resolution queue, and a manual chain-anchor trigger, credential issue/revoke + evidence upload + a public verification page, reputation score + reviews on the org page, and a public chain-anchor page that independently recomputes and checks the Merkle root in the browser. Styling is minimal |
 | Security hardening, load testing, backup drills | **Not done** |
 
 Nothing above is a demo pretending to work — every "Implemented" row has
@@ -79,6 +79,11 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
+Blockchain anchoring is optional but real when configured — see
+[Blockchain anchoring (local)](#blockchain-anchoring-local) below. Without
+it, `CHAIN_*` vars stay empty and anchoring silently falls back to a
+local-only `pending` row (unchanged from before this existed).
+
 Run the API:
 
 ```bash
@@ -116,8 +121,56 @@ apps/api/        NestJS API — one module per domain
 apps/web/        Next.js frontend (minimal)
 database/prisma/ schema.prisma — the data model
 database/seeds/  seed script
-contracts/       reserved for Solidity (not started)
+contracts/       Foundry project — AnchorRegistry.sol + tests + deploy script
 docs/            architecture notes, known limitations
+```
+
+## Blockchain anchoring (local)
+
+Anchoring batches of audit events requires an EVM chain, a deployed
+`AnchorRegistry` contract, and a signer. This sandbox has no access to a
+funded account on any public testnet, so it uses
+[Foundry](https://getfoundry.sh)'s `anvil` — a real local chain, not a
+mock. Requires `forge` and `anvil` on `PATH` (`curl -L https://foundry.paradigm.xyz | bash && foundryup`).
+
+```bash
+# Terminal 1 — leave running
+anvil --port 8545
+
+# Terminal 2 — install deps (first time only) and deploy
+cd contracts
+forge install   # fetches forge-std; contracts/lib is gitignored
+forge build
+forge test
+
+CHAIN_SIGNER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  forge script script/Deploy.s.sol:DeployAnchorRegistry \
+  --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+The private key above is `anvil`'s well-known, publicly documented
+first dev account — safe to hardcode here because it only ever holds
+play-money ETH on a throwaway local chain. **Never reuse it, or any other
+`anvil` default key, on a network where it could hold anything real.**
+
+Copy the deployed address from the script's output into `.env`:
+
+```bash
+CHAIN_RPC_URL=http://127.0.0.1:8545
+CHAIN_ID=31337
+CHAIN_ANCHOR_CONTRACT_ADDRESS=<address from the deploy output>
+CHAIN_SIGNER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+```
+
+Restart the API, then as an admin user (`ADMIN_USER_IDS`), either call
+`POST /api/v1/admin/chain/anchor` or click **"Anchor pending events now"**
+on `/admin`. Check the result at `/chain/anchors/:id` — that page
+recomputes the Merkle root client-side from the public event-hash list
+and checks it against the anchored root, so it isn't just trusting the
+API's word for it. You can also check the chain directly:
+
+```bash
+cast call <contract address> "anchorCount()(uint256)" --rpc-url http://127.0.0.1:8545
 ```
 
 ## Credential signing keys (for local dev only)

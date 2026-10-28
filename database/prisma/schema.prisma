@@ -485,12 +485,15 @@ model AuditEvent {
   payloadHash   String   @map("payload_hash")
   payload       Json
   previousHash  String?  @map("previous_hash")
+  chainAnchorId String?  @map("chain_anchor_id") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")
 
-  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor       User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  chainAnchor ChainAnchor? @relation(fields: [chainAnchorId], references: [id], onDelete: SetNull)
 
   @@index([entityType, entityId, createdAt])
   @@index([createdAt])
+  @@index([chainAnchorId])
   @@map("audit_events")
 }
 
@@ -505,6 +508,8 @@ model ChainAnchor {
   eventCount      Int               @map("event_count")
   createdAt       DateTime          @default(now()) @map("created_at")
   confirmedAt     DateTime?         @map("confirmed_at")
+
+  auditEvents AuditEvent[]
 
   @@index([status])
   @@index([batchRoot])

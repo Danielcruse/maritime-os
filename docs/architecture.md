@@ -64,11 +64,26 @@ transaction" rule.
 - **`AdminGuard` is an env-var allowlist of user IDs**, not a real
   `admin_users` table with role assignment. Fine for development, not for
   production — see acceptance criterion 14 in the founder's brief.
-- **Chain anchoring is a documented stub.** `ChainAnchorService` can build a
-  Merkle root and insert a `pending` `ChainAnchor` row, but nothing submits
-  that root to an actual EVM network, and no contract exists yet in
-  `contracts/`. No network has been selected. Treat every `ChainAnchor` row
-  this code creates as permanently pending until that work lands.
+- **Chain anchoring is real, but only against a local dev chain — not a
+  public network.** `contracts/src/AnchorRegistry.sol` is a real Solidity
+  contract (Foundry project, 11 passing tests), deployed to a local
+  `anvil` node; `ChainAnchorService.submitBatch` signs and submits a real
+  transaction via `ethers`, waits for the receipt, and stores the real
+  `txHash`/`blockNumber`, not placeholders. What's still missing before
+  this means anything beyond a demo: (1) no public testnet or mainnet has
+  been selected or funded — this sandbox has no access to a funded
+  account on one; (2) single-submitter trust model — `AnchorRegistry` has
+  one authorized `submitter` address (the API's signing key), not a
+  multi-sig or DAO-governed set, so anyone who steals that key can submit
+  false anchors (they can't rewrite history, since a wrong root just
+  fails independent recomputation, but they could submit garbage); (3) no
+  scheduler — anchoring is an explicit admin action
+  (`POST /admin/chain/anchor`), not a cron job, because no job queue is
+  wired up yet; (4) the local chain is ephemeral — `anvil`'s state is
+  gone the moment it restarts, so every anchor's on-chain existence is
+  only as durable as that one process. Swap `CHAIN_RPC_URL` for a real
+  network's endpoint, fund a real signer, and address all four before
+  trusting an anchor as evidence of anything.
 - **Uploads exist but are local-disk only, not real object storage.**
   `StorageService` (`apps/api/src/storage/storage.service.ts`) writes to
   `.local-data/uploads/` and is what every `storageKey` across
@@ -186,8 +201,36 @@ was used instead of `docker compose up -d db`:
   something pulled from the founder's brief — validate it before trusting
   it on a real dispute.
 
+- Blockchain anchoring, run against a real (if local-only) chain, not
+  mocked: `forge test` — 11 tests covering access control (owner/submitter
+  roles), duplicate-reference rejection, zero-root/zero-count rejection,
+  index-out-of-range, and correct event emission — all passed. Then live,
+  end to end, through the actual running system: started `anvil`,
+  deployed `AnchorRegistry` with `forge script --broadcast` (a real
+  transaction, not a simulation), pointed the API at it, and clicked
+  "Anchor pending events now" on `/admin`. That submitted a real signed
+  transaction anchoring 135 real audit events accumulated from everything
+  else tested in this project; it confirmed in the next block with a real
+  `txHash`. Verified the result three independent ways, not just by
+  reading the API's own response back: (1) recomputed the Merkle root
+  from the public per-event hash list in a plain Node script — matched
+  the DB's `batchRoot` exactly; (2) called `cast call ... getAnchor(0)`
+  directly against the contract, bypassing the API entirely — the
+  on-chain root, event count, and submitter address all matched; (3) the
+  `/chain/anchors/:id` page's own client-side recomputation (Web Crypto,
+  not a call back to the server) also matched. Repeated the whole cycle a
+  second time with one fresh event to confirm it isn't a one-off, and
+  confirmed clicking the button with nothing new pending returns a clean
+  400 instead of silently resubmitting. Also found and fixed a real bug
+  this surfaced: Prisma's `BigInt` (`ChainAnchor.blockNumber`) doesn't
+  survive `JSON.stringify` by default — every anchor endpoint 500'd until
+  `main.ts` got a `BigInt.prototype.toJSON` patch — and a second one: the
+  original `audit/anchors/:id` route collided with
+  `AuditController`'s `audit/:entityType/:id` wildcard (`entityType` could
+  literally be `"anchors"`), which silently shadowed both new endpoints
+  until the chain routes were moved to `chain/anchors/:id`.
+
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
-and anything that would need a live blockchain RPC endpoint (not
-configured — see "Known limitations" above). Object storage now has a
-real local-disk implementation (see above) but has not been swapped for
-an actual cloud object store.
+and anchoring against anything other than this local `anvil` chain.
+Object storage now has a real local-disk implementation (see above) but
+has not been swapped for an actual cloud object store.

@@ -32,6 +32,18 @@ interface Dispute {
   };
 }
 
+interface ChainAnchor {
+  id: string;
+  batchRoot: string;
+  chainId: number;
+  txHash: string | null;
+  blockNumber: string | null;
+  status: string;
+  eventCount: number;
+  createdAt: string;
+  confirmedAt: string | null;
+}
+
 export default function AdminPage() {
   const [cases, setCases] = useState<VerificationCase[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +60,10 @@ export default function AdminPage() {
   const [disputesError, setDisputesError] = useState<string | null>(null);
   const [resolutionCodeByDispute, setResolutionCodeByDispute] = useState<Record<string, string>>({});
   const [resolutionNotesByDispute, setResolutionNotesByDispute] = useState<Record<string, string>>({});
+
+  const [anchors, setAnchors] = useState<ChainAnchor[] | null>(null);
+  const [anchorsError, setAnchorsError] = useState<string | null>(null);
+  const [anchoring, setAnchoring] = useState(false);
 
   function load() {
     setLoading(true);
@@ -93,6 +109,37 @@ export default function AdminPage() {
     loadDisputes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showResolvedDisputes]);
+
+  function loadAnchors() {
+    setAnchorsError(null);
+    api
+      .get<ChainAnchor[]>("/admin/chain/anchors")
+      .then(setAnchors)
+      .catch((err) => {
+        if (!(err instanceof ApiRequestError && err.status === 403)) {
+          setAnchorsError(err instanceof ApiRequestError ? err.apiError.message : "Could not load chain anchors.");
+        }
+      });
+  }
+
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+    loadAnchors();
+  }, []);
+
+  async function onAnchorNow() {
+    setAnchorsError(null);
+    setAnchoring(true);
+    try {
+      await api.post("/admin/chain/anchor");
+      setActionMsg("Pending audit events anchored on-chain.");
+      loadAnchors();
+    } catch (err) {
+      setAnchorsError(err instanceof ApiRequestError ? err.apiError.message : "Could not submit anchor.");
+    } finally {
+      setAnchoring(false);
+    }
+  }
 
   async function onViewDocument(storageKey: string) {
     try {
@@ -281,6 +328,36 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
+          </li>
+        ))}
+      </ul>
+
+      <h2>Chain anchors</h2>
+      <p style={muted}>
+        Folds every not-yet-anchored audit event into one Merkle root and submits it on-chain (a local dev chain in
+        this sandbox — see docs/architecture.md). There's no scheduler wired up, so this is a manual trigger.
+      </p>
+      <button style={button} onClick={onAnchorNow} disabled={anchoring}>
+        {anchoring ? "Anchoring…" : "Anchor pending events now"}
+      </button>
+      {anchorsError && <p style={errorText}>{anchorsError}</p>}
+      {anchors && anchors.length === 0 && <p style={muted}>No anchors submitted yet.</p>}
+      <ul style={{ listStyle: "none", padding: 0, marginTop: 12 }}>
+        {anchors?.map((a) => (
+          <li key={a.id} style={card}>
+            <a href={`/chain/anchors/${a.id}`} style={{ color: "#e7edf5", fontWeight: 600, textDecoration: "none" }}>
+              {a.eventCount} events
+            </a>{" "}
+            <span style={badge}>{a.status}</span>
+            <p style={muted}>
+              <small>
+                {a.txHash ? `Tx ${a.txHash.slice(0, 18)}… (block ${a.blockNumber})` : "No on-chain tx (chain not configured)"}
+              </small>
+            </p>
+            <p style={muted}>
+              Submitted {new Date(a.createdAt).toLocaleString()}
+              {a.confirmedAt && ` · confirmed ${new Date(a.confirmedAt).toLocaleString()}`}
+            </p>
           </li>
         ))}
       </ul>
