@@ -77,10 +77,19 @@ export class AdminController {
       events.map((e) => e.payloadHash),
     );
 
-    if (anchor.status === "confirmed") {
+    // "pending" still means a real transaction was broadcast (it has a
+    // txHash) — only "failed" means these events were never actually
+    // submitted and should stay eligible for the next batch.
+    if (anchor.status === "confirmed" || anchor.status === "pending") {
       await this.auditService.markAnchored(events.map((e) => e.id), anchor.id);
     }
 
     return { data: anchor };
+  }
+
+  /** Checks every still-pending anchor against the chain and updates its status. Also runs automatically on every read. */
+  @Post("chain/reconcile")
+  async reconcileAnchors() {
+    return { data: await this.chainAnchorService.reconcilePending() };
   }
 }

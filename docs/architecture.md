@@ -67,23 +67,35 @@ transaction" rule.
 - **Chain anchoring is real, but only against a local dev chain — not a
   public network.** `contracts/src/AnchorRegistry.sol` is a real Solidity
   contract (Foundry project, 11 passing tests), deployed to a local
-  `anvil` node; `ChainAnchorService.submitBatch` signs and submits a real
-  transaction via `ethers`, waits for the receipt, and stores the real
-  `txHash`/`blockNumber`, not placeholders. What's still missing before
-  this means anything beyond a demo: (1) no public testnet or mainnet has
-  been selected or funded — this sandbox has no access to a funded
-  account on one; (2) single-submitter trust model — `AnchorRegistry` has
-  one authorized `submitter` address (the API's signing key), not a
-  multi-sig or DAO-governed set, so anyone who steals that key can submit
-  false anchors (they can't rewrite history, since a wrong root just
-  fails independent recomputation, but they could submit garbage); (3) no
-  scheduler — anchoring is an explicit admin action
-  (`POST /admin/chain/anchor`), not a cron job, because no job queue is
-  wired up yet; (4) the local chain is ephemeral — `anvil`'s state is
-  gone the moment it restarts, so every anchor's on-chain existence is
-  only as durable as that one process. Swap `CHAIN_RPC_URL` for a real
-  network's endpoint, fund a real signer, and address all four before
-  trusting an anchor as evidence of anything.
+  `anvil` node; `ChainAnchorService.submitBatch` signs and broadcasts a
+  real transaction via `ethers` and stores the real `txHash`, not a
+  placeholder. Confirmation is decoupled from submission on purpose —
+  `submitBatch` only blocks briefly (5s) trying for an immediate
+  confirmation, then leaves the anchor `pending` with its real `txHash`
+  if that doesn't land in time, since blocking an HTTP request on a
+  chain's actual block time (12s+ on Ethereum mainnet, longer under
+  congestion) is the wrong shape for a synchronous API call.
+  `reconcilePending` (run opportunistically on every read, and
+  explicitly via `POST /admin/chain/reconcile`) checks pending anchors'
+  transactions against the chain and flips them to `confirmed` or
+  `failed` once mined. What's still missing before this means anything
+  beyond a demo: (1) no public testnet or mainnet has been selected or
+  funded — this sandbox has no access to a funded account on one; (2)
+  single-submitter trust model — `AnchorRegistry` has one authorized
+  `submitter` address (the API's signing key), not a multi-sig or
+  DAO-governed set, so anyone who steals that key can submit false
+  anchors (they can't rewrite history, since a wrong root just fails
+  independent recomputation, but they could submit garbage); (3)
+  reconciliation is read-triggered and manually triggerable, not a
+  scheduled job — a `pending` anchor nobody ever looks at again stays
+  `pending` forever, because no job queue is wired up yet; (4) the local
+  chain is ephemeral — `anvil`'s state is gone the moment it restarts, so
+  every anchor's on-chain existence is only as durable as that one
+  process; (5) `reorg_affected` exists in `ChainAnchorStatus` but nothing
+  detects a reorg — a `confirmed` anchor whose block later gets
+  orphaned on a real chain would stay `confirmed` here. Swap
+  `CHAIN_RPC_URL` for a real network's endpoint, fund a real signer, and
+  address all five before trusting an anchor as evidence of anything.
 - **Uploads exist but are local-disk only, not real object storage.**
   `StorageService` (`apps/api/src/storage/storage.service.ts`) writes to
   `.local-data/uploads/` and is what every `storageKey` across
@@ -229,6 +241,17 @@ was used instead of `docker compose up -d db`:
   `AuditController`'s `audit/:entityType/:id` wildcard (`entityType` could
   literally be `"anchors"`), which silently shadowed both new endpoints
   until the chain routes were moved to `chain/anchors/:id`.
+- The pending/reconcile split specifically: used `cast rpc evm_setAutomine
+  false` to make `anvil` stop mining, so a submitted transaction would
+  genuinely sit unconfirmed — not a simulation. Anchoring with the chain
+  in that state returned in ~5.2s (the bounded immediate-confirm attempt
+  timing out as designed) with `status: "pending"` and a real `txHash` but
+  `blockNumber: null`. Mined the block by hand (`cast rpc evm_mine`),
+  called `POST /admin/chain/reconcile`, and confirmed it reported
+  `{checked: 1, confirmed: 1, failed: 0}` and the anchor flipped to
+  `confirmed` with a real block number. This proves the API never hangs
+  waiting on a slow chain and that a pending anchor genuinely does get
+  picked up later, not just that the code compiles.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anchoring against anything other than this local `anvil` chain.

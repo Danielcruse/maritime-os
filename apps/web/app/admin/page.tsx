@@ -141,6 +141,17 @@ export default function AdminPage() {
     }
   }
 
+  async function onReconcile() {
+    setAnchorsError(null);
+    try {
+      const result = await api.post<{ checked: number; confirmed: number; failed: number }>("/admin/chain/reconcile");
+      setActionMsg(`Checked ${result.checked} pending anchor(s): ${result.confirmed} confirmed, ${result.failed} failed.`);
+      loadAnchors();
+    } catch (err) {
+      setAnchorsError(err instanceof ApiRequestError ? err.apiError.message : "Could not reconcile anchors.");
+    }
+  }
+
   async function onViewDocument(storageKey: string) {
     try {
       await api.openFile(storageKey);
@@ -339,6 +350,9 @@ export default function AdminPage() {
       </p>
       <button style={button} onClick={onAnchorNow} disabled={anchoring}>
         {anchoring ? "Anchoring…" : "Anchor pending events now"}
+      </button>{" "}
+      <button style={secondaryButton} onClick={onReconcile}>
+        Recheck pending anchors
       </button>
       {anchorsError && <p style={errorText}>{anchorsError}</p>}
       {anchors && anchors.length === 0 && <p style={muted}>No anchors submitted yet.</p>}

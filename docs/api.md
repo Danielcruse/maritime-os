@@ -22,7 +22,7 @@ trace or database error.
 - `GET /api/v1/organizations/:id/reputation`
 - `GET /api/v1/audit/:entityType/:id`
 - `GET /api/v1/chain/anchors/:id`, `/chain/anchors/:id/events`
-- `GET/POST /api/v1/admin/chain/anchors`, `/admin/chain/anchor` — admin-only: list anchors, submit the next batch of unanchored audit events on-chain
+- `GET/POST /api/v1/admin/chain/anchors`, `/admin/chain/anchor`, `/admin/chain/reconcile` — admin-only: list anchors (auto-reconciles pending ones), submit the next batch of unanchored audit events on-chain, manually re-check pending anchors against the chain
 
 Routes that act "on behalf of an organization" encode the organization id in
 the path (`.../organizations/:organizationId`) rather than trusting it from
