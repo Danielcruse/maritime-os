@@ -13,6 +13,7 @@ export const ANCHOR_REGISTRY_ABI = [
   "function offChainRefAnchored(bytes32) view returns (bool)",
   "function setSubmitter(address newSubmitter)",
   "function submitAnchor(bytes32 batchRoot, uint64 eventCount, bytes32 offChainRef) returns (uint256 index)",
+  "function verifyInclusion(uint256 anchorIndex, string leafHex, string[] proofHex, bool[] siblingIsLeft) view returns (bool)",
   "event AnchorSubmitted(uint256 indexed index, bytes32 indexed batchRoot, bytes32 indexed offChainRef, uint64 eventCount, uint64 timestamp, address submitter)",
   "event SubmitterUpdated(address indexed previousSubmitter, address indexed newSubmitter)",
   "error NotOwner()",
@@ -21,4 +22,7 @@ export const ANCHOR_REGISTRY_ABI = [
   "error ZeroEventCount()",
   "error ReferenceAlreadyAnchored()",
   "error IndexOutOfRange()",
+  "error ProofLengthMismatch()",
+  "error InvalidHexLength()",
+  "error InvalidHexChar()",
 ] as const;

@@ -66,7 +66,7 @@ transaction" rule.
   production — see acceptance criterion 14 in the founder's brief.
 - **Chain anchoring is real, but only against a local dev chain — not a
   public network.** `contracts/src/AnchorRegistry.sol` is a real Solidity
-  contract (Foundry project, 11 passing tests), deployed to a local
+  contract (Foundry project, 17 passing tests), deployed to a local
   `anvil` node; `ChainAnchorService.submitBatch` signs and broadcasts a
   real transaction via `ethers` and stores the real `txHash`, not a
   placeholder. Confirmation is decoupled from submission on purpose —
@@ -96,6 +96,21 @@ transaction" rule.
   orphaned on a real chain would stay `confirmed` here. Swap
   `CHAIN_RPC_URL` for a real network's endpoint, fund a real signer, and
   address all five before trusting an anchor as evidence of anything.
+- **Per-event Merkle inclusion proofs are real, including on-chain
+  verification — but only for anchors submitted after `AnchorRegistry`
+  gained `verifyInclusion`.** `GET /chain/anchors/:id/proof/:eventId`
+  (`apps/api/src/chain/merkle.ts`) returns a compact O(log n) proof for
+  one event, not the whole batch, checked off-chain (recomputed from
+  scratch, not trusted) and on-chain (a free `eth_call` against the
+  contract). Anchors submitted to an OLDER deployment of the contract —
+  i.e. before `verifyInclusion` existed — correctly return
+  `onChainVerified: null`, not an error: that function genuinely does not
+  exist in that contract's deployed bytecode, which is expected
+  immutability, not a bug. This is also why on-chain verification is
+  looked up by the anchor's OWN stored `contractAddress`, never the
+  currently-configured one — an anchor must stay checkable against the
+  exact contract it was actually submitted to, independent of any later
+  redeploy.
 - **Uploads exist but are local-disk only, not real object storage.**
   `StorageService` (`apps/api/src/storage/storage.service.ts`) writes to
   `.local-data/uploads/` and is what every `storageKey` across
@@ -261,6 +276,26 @@ was used instead of `docker compose up -d db`:
   `previousHash`, each one matching the prior event's own hash exactly
   (not just present — checked they're the same value), and each correctly
   links to the anchor that actually covers it.
+- Per-event Merkle inclusion proofs, cross-checked four independent ways.
+  `forge test` validated the Solidity port against test vectors generated
+  by the REAL TypeScript implementation (not hand-computed), including an
+  odd-count batch to exercise self-duplication — 17/17 pass. Live:
+  redeployed the contract with `verifyInclusion`, anchored a fresh
+  25-event batch, and fetched a proof for one event buried in it — a
+  5-hash proof, not all 25. Checked it four ways: (1) the API's own
+  off-chain recomputation said it matched; (2) the live contract's
+  `verifyInclusion`, called through the API, said `true`; (3) called the
+  exact same function directly with `cast call`, bypassing the API
+  entirely — `true`; (4) called it again with a deliberately wrong leaf
+  hash — `false`, proving the contract actually discriminates rather than
+  rubber-stamping. Also confirmed the "predates this function" case isn't
+  silently wrong: asking for a proof against an anchor on the OLD
+  (pre-`verifyInclusion`) contract deployment correctly returned
+  `onChainVerified: null` with a clear "predates on-chain proof
+  verification" message in the UI, not a crash or a false positive.
+  Finally drove the whole thing through the real browser: clicked "Verify
+  this event's inclusion" on `/audit/user/:id` and watched both checks
+  render live.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anchoring against anything other than this local `anvil` chain.

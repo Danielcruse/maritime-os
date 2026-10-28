@@ -23,7 +23,7 @@ here is production-ready.
 | Reputation (versioned, evidence-based calculation) | Implemented |
 | Points ledger (idempotent, reversible) | Implemented |
 | Audit trail (hash-chained, tamper-evident) | Implemented |
-| Blockchain anchoring | Implemented against a **local dev chain only** — real contract, real signed transactions, no public testnet/mainnet (see known limitations) |
+| Blockchain anchoring | Implemented against a **local dev chain only** — real contract, real signed transactions, real on-chain per-event Merkle inclusion proofs (not just whole-batch recompute), no public testnet/mainnet (see known limitations) |
 | Object storage / file upload | Implemented on **local disk only** — `POST /uploads` + `GET /uploads/:storageKey`, no S3/cloud storage wired up (see known limitations) |
 | Frontend | Implemented — register/login, dashboard, org management + verification (with real document upload), listing create/publish/apply/award, assignment evidence/confirm/dispute/review (with real evidence file upload), admin verification queue (with document view links), dispute-resolution queue, and a chain-anchor trigger/reconcile, credential issue/revoke + evidence upload + a public verification page, reputation score + reviews on the org page, a public chain-anchor page that independently recomputes and checks the Merkle root in the browser, and a hash-chain audit-trail viewer per entity showing which events are anchored. Styling is minimal |
 | Security hardening, load testing, backup drills | **Not done** |
@@ -172,6 +172,26 @@ API's word for it. You can also check the chain directly:
 ```bash
 cast call <contract address> "anchorCount()(uint256)" --rpc-url http://127.0.0.1:8545
 ```
+
+**Per-event proofs**, not just whole-batch verification: open any
+anchored event's audit trail (`/audit/<entityType>/<entityId>`, linked
+from assignment/organization pages) and click **"Verify this event's
+inclusion"**. That fetches a compact proof — a handful of sibling
+hashes, not the whole batch — and checks it both off-chain and against
+the live contract's `verifyInclusion` (a free, no-gas `eth_call`). You
+can call the exact same check yourself, independent of this app entirely:
+
+```bash
+cast call <contract address> \
+  "verifyInclusion(uint256,string,string[],bool[])(bool)" \
+  <anchor index> <leaf hex> "[<proof hex>,...]" "[<true/false>,...]" \
+  --rpc-url http://127.0.0.1:8545
+```
+
+Redeploying the contract (e.g. after editing `AnchorRegistry.sol`) only
+affects NEW anchors — old ones keep pointing at whatever contract address
+they were actually submitted to, so they stay verifiable against that
+exact deployment even if `CHAIN_ANCHOR_CONTRACT_ADDRESS` later changes.
 
 ## Credential signing keys (for local dev only)
 

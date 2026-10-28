@@ -43,6 +43,9 @@ contract AnchorRegistry {
     error ZeroEventCount();
     error ReferenceAlreadyAnchored();
     error IndexOutOfRange();
+    error ProofLengthMismatch();
+    error InvalidHexLength();
+    error InvalidHexChar();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -110,5 +113,61 @@ contract AnchorRegistry {
     /// @notice Returns 0 if the root was never anchored; otherwise the 1-based index (subtract 1 for the array position).
     function indexOfRoot(bytes32 batchRoot) external view returns (uint256) {
         return rootToIndexPlusOne[batchRoot];
+    }
+
+    /// @notice Verifies that a single leaf is included in the anchor at `anchorIndex`'s batch
+    /// root, given a compact Merkle proof (O(log n) sibling hashes) — the caller never needs
+    /// the batch's other leaves. Mirrors apps/api/src/chain/merkle.ts exactly: at each level,
+    /// sha256 of the two 64-char lowercase hex strings concatenated AS TEXT, not their raw 32
+    /// bytes (matching Node's `createHash("sha256").update(leftHex + rightHex)`). `view`, so
+    /// any indexer or verifier can call this for free via eth_call — no gas, no state change.
+    /// @param leafHex The leaf's own hash, as a 64-char lowercase hex string (no 0x prefix).
+    /// @param proofHex Sibling hash at each level, root-ward from the leaf, same hex format.
+    /// @param siblingIsLeft For proofHex[i]: true if that sibling sits to the left of the running hash.
+    function verifyInclusion(
+        uint256 anchorIndex,
+        string calldata leafHex,
+        string[] calldata proofHex,
+        bool[] calldata siblingIsLeft
+    ) external view returns (bool) {
+        if (anchorIndex >= anchors.length) revert IndexOutOfRange();
+        if (proofHex.length != siblingIsLeft.length) revert ProofLengthMismatch();
+
+        bytes memory current = bytes(leafHex);
+        for (uint256 i = 0; i < proofHex.length; i++) {
+            bytes memory sibling = bytes(proofHex[i]);
+            bytes memory combined = siblingIsLeft[i] ? bytes.concat(sibling, current) : bytes.concat(current, sibling);
+            current = bytes(_toHexString(sha256(combined)));
+        }
+
+        return _hexStringToBytes32(string(current)) == anchors[anchorIndex].batchRoot;
+    }
+
+    function _toHexString(bytes32 data) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(64);
+        for (uint256 i = 0; i < 32; i++) {
+            str[i * 2] = alphabet[uint8(data[i] >> 4)];
+            str[i * 2 + 1] = alphabet[uint8(data[i] & 0x0f)];
+        }
+        return string(str);
+    }
+
+    function _hexCharToNibble(bytes1 c) private pure returns (uint8) {
+        uint8 b = uint8(c);
+        if (b >= 48 && b <= 57) return b - 48; // '0'-'9'
+        if (b >= 97 && b <= 102) return b - 87; // 'a'-'f'
+        if (b >= 65 && b <= 70) return b - 55; // 'A'-'F'
+        revert InvalidHexChar();
+    }
+
+    function _hexStringToBytes32(string memory hexStr) private pure returns (bytes32 result) {
+        bytes memory b = bytes(hexStr);
+        if (b.length != 64) revert InvalidHexLength();
+        for (uint256 i = 0; i < 32; i++) {
+            uint8 hi = _hexCharToNibble(b[i * 2]);
+            uint8 lo = _hexCharToNibble(b[i * 2 + 1]);
+            result |= bytes32(uint256(hi * 16 + lo)) << uint256((31 - i) * 8);
+        }
     }
 }

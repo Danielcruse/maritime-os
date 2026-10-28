@@ -1,9 +1,9 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createHash } from "crypto";
 import { Contract, JsonRpcProvider, Wallet } from "ethers";
 import { PrismaService } from "../prisma/prisma.service";
 import { ANCHOR_REGISTRY_ABI } from "./anchor-registry.abi";
+import { buildMerkleRoot } from "./merkle";
 
 /**
  * Batches audit events into a Merkle root and anchors it on an
@@ -31,21 +31,9 @@ export class ChainAnchorService {
     private readonly configService: ConfigService,
   ) {}
 
+  /** Delegates to ./merkle.ts — kept as a method here since callers (and this file's own spec) already depend on it. */
   buildMerkleRoot(leafHashes: string[]): string {
-    if (leafHashes.length === 0) {
-      throw new Error("Cannot build a Merkle root from an empty event batch.");
-    }
-    let level = [...leafHashes].sort(); // deterministic ordering
-    while (level.length > 1) {
-      const next: string[] = [];
-      for (let i = 0; i < level.length; i += 2) {
-        const left = level[i];
-        const right = level[i + 1] ?? level[i]; // duplicate last node on odd counts
-        next.push(createHash("sha256").update(left + right).digest("hex"));
-      }
-      level = next;
-    }
-    return level[0];
+    return buildMerkleRoot(leafHashes);
   }
 
   private isChainConfigured(): boolean {
@@ -204,5 +192,35 @@ export class ChainAnchorService {
   async list(limit = 50) {
     await this.reconcilePending();
     return this.prisma.chainAnchor.findMany({ orderBy: { createdAt: "desc" }, take: limit });
+  }
+
+  /**
+   * Asks the contract itself whether `leaf` + `proof` verifies against
+   * `anchor`'s batch root — a free, read-only `eth_call`, not a guess
+   * based on the database. Uses the anchor's OWN `contractAddress` (not
+   * whatever `CHAIN_ANCHOR_CONTRACT_ADDRESS` is configured to right now),
+   * since an anchor stays verifiable against the exact contract it was
+   * submitted to even after a redeploy points new anchors elsewhere.
+   * Returns null (not false) when the chain can't be asked at all —
+   * callers must not conflate "unreachable" with "verification failed."
+   */
+  async verifyInclusionOnChain(
+    anchor: { contractAddress: string; batchRoot: string },
+    leaf: string,
+    proof: string[],
+    siblingIsLeft: boolean[],
+  ): Promise<boolean | null> {
+    const rpcUrl = this.configService.get<string>("CHAIN_RPC_URL");
+    if (!rpcUrl || /^0x0+$/.test(anchor.contractAddress)) return null;
+    try {
+      const provider = new JsonRpcProvider(rpcUrl);
+      const readOnly = new Contract(anchor.contractAddress, ANCHOR_REGISTRY_ABI, provider);
+      const indexPlusOne: bigint = await readOnly.indexOfRoot(`0x${anchor.batchRoot}`);
+      if (indexPlusOne === 0n) return null; // this contract doesn't know this root (e.g. chain was reset)
+      return (await readOnly.verifyInclusion(indexPlusOne - 1n, leaf, proof, siblingIsLeft)) as boolean;
+    } catch (err: any) {
+      this.logger.warn(`verifyInclusionOnChain failed for ${anchor.contractAddress}: ${err?.message ?? err}`);
+      return null;
+    }
   }
 }
