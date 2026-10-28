@@ -91,11 +91,22 @@ transaction" rule.
   `pending` forever, because no job queue is wired up yet; (4) the local
   chain is ephemeral — `anvil`'s state is gone the moment it restarts, so
   every anchor's on-chain existence is only as durable as that one
-  process; (5) `reorg_affected` exists in `ChainAnchorStatus` but nothing
-  detects a reorg — a `confirmed` anchor whose block later gets
-  orphaned on a real chain would stay `confirmed` here. Swap
-  `CHAIN_RPC_URL` for a real network's endpoint, fund a real signer, and
-  address all five before trusting an anchor as evidence of anything.
+  process. Swap `CHAIN_RPC_URL` for a real network's endpoint, fund a
+  real signer, and address all four before trusting an anchor as
+  evidence of anything.
+- **Reorg detection now exists** (`ChainAnchorService.detectReorgs`,
+  `POST /admin/chain/detect-reorgs`) — it records each anchor's block
+  HASH, not just its number, at confirmation time, then compares that
+  hash to what the chain currently reports for that block number;
+  divergence means the block was orphaned, and the anchor gets flagged
+  `reorg_affected` instead of silently staying `confirmed`. Like
+  reconciliation, it's triggered manually or on-demand, not on a
+  schedule — same gap as (3) above. It also only covers anchors
+  confirmed AFTER this field was added; anchors confirmed earlier have
+  no recorded block hash to compare against and are correctly skipped,
+  not guessed at. It does not attempt recovery (resubmitting an
+  orphaned anchor's transaction) — that's a deliberate next step, not
+  done here.
 - **Per-event Merkle inclusion proofs are real, including on-chain
   verification — but only for anchors submitted after `AnchorRegistry`
   gained `verifyInclusion`.** `GET /chain/anchors/:id/proof/:eventId`
@@ -296,6 +307,23 @@ was used instead of `docker compose up -d db`:
   Finally drove the whole thing through the real browser: clicked "Verify
   this event's inclusion" on `/audit/user/:id` and watched both checks
   render live.
+- Reorg detection, against a genuinely reorganized chain, not a
+  simulation of one: snapshotted `anvil`'s state (`evm_snapshot`),
+  anchored a fresh batch (confirmed in block 8, with a real block hash
+  recorded), then reverted to the snapshot (`evm_revert`) — undoing
+  block 8 and everything after it — and mined two different empty
+  blocks in its place. Block 8 now exists with entirely different
+  content and a different hash than what was recorded; the original
+  anchor's transaction no longer exists on the canonical chain. Ran
+  `POST /admin/chain/detect-reorgs` and confirmed it correctly reported
+  `{checked: 1, reorgAffected: 1}` and flipped that anchor's status to
+  `reorg_affected` — checked directly against the database afterward,
+  not just trusting the endpoint's own response. Also confirmed the
+  honest-exclusion behavior: anchors confirmed before this field existed
+  (no recorded block hash) are correctly skipped rather than guessed at,
+  and running the check again afterward correctly reported 0 anchors
+  left to check, since the only one with a tracked block hash had
+  already been flagged.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anchoring against anything other than this local `anvil` chain.

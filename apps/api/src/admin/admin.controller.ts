@@ -92,4 +92,10 @@ export class AdminController {
   async reconcileAnchors() {
     return { data: await this.chainAnchorService.reconcilePending() };
   }
+
+  /** Checks every confirmed anchor's block is still on the canonical chain; flags any that got reorganized out. */
+  @Post("chain/detect-reorgs")
+  async detectReorgs() {
+    return { data: await this.chainAnchorService.detectReorgs() };
+  }
 }

@@ -138,7 +138,12 @@ export class ChainAnchorService {
         where: { id: anchor.id },
         data:
           receipt.status === 1
-            ? { status: "confirmed", blockNumber: BigInt(receipt.blockNumber), confirmedAt: new Date() }
+            ? {
+                status: "confirmed",
+                blockNumber: BigInt(receipt.blockNumber),
+                blockHash: receipt.blockHash,
+                confirmedAt: new Date(),
+              }
             : { status: "failed" },
       });
     } catch {
@@ -167,7 +172,12 @@ export class ChainAnchorService {
           where: { id: anchor.id },
           data:
             receipt.status === 1
-              ? { status: "confirmed", blockNumber: BigInt(receipt.blockNumber), confirmedAt: new Date() }
+              ? {
+                  status: "confirmed",
+                  blockNumber: BigInt(receipt.blockNumber),
+                  blockHash: receipt.blockHash,
+                  confirmedAt: new Date(),
+                }
               : { status: "failed" },
         });
         if (receipt.status === 1) confirmed++;
@@ -177,6 +187,44 @@ export class ChainAnchorService {
       }
     }
     return { checked: pending.length, confirmed, failed };
+  }
+
+  /**
+   * Checks every "confirmed" anchor's stored `blockHash` against what the
+   * chain now reports for that block number. If they differ, the block
+   * that anchor was confirmed in no longer exists on the canonical chain —
+   * it was reorganized out — and the anchor is no longer safely confirmed,
+   * even though nothing about the ANCHOR row itself changed. Flags it
+   * `reorg_affected` rather than silently leaving a stale `confirmed`.
+   * The underlying transaction may still be valid and get re-mined into a
+   * later block; this only detects the divergence, it doesn't resubmit.
+   */
+  async detectReorgs(): Promise<{ checked: number; reorgAffected: number }> {
+    if (!this.isChainConfigured()) return { checked: 0, reorgAffected: 0 };
+
+    const confirmedAnchors = await this.prisma.chainAnchor.findMany({
+      where: { status: "confirmed", blockNumber: { not: null }, blockHash: { not: null } },
+    });
+    if (confirmedAnchors.length === 0) return { checked: 0, reorgAffected: 0 };
+
+    const provider = new JsonRpcProvider(this.configService.get<string>("CHAIN_RPC_URL")!);
+    let reorgAffected = 0;
+    for (const anchor of confirmedAnchors) {
+      try {
+        const currentBlock = await provider.getBlock(Number(anchor.blockNumber));
+        if (!currentBlock || currentBlock.hash !== anchor.blockHash) {
+          await this.prisma.chainAnchor.update({ where: { id: anchor.id }, data: { status: "reorg_affected" } });
+          reorgAffected++;
+          this.logger.warn(
+            `Reorg detected for anchor ${anchor.id}: block ${anchor.blockNumber} hash changed ` +
+              `from ${anchor.blockHash} to ${currentBlock?.hash ?? "(block no longer exists)"}.`,
+          );
+        }
+      } catch (err: any) {
+        this.logger.warn(`detectReorgs: could not check anchor ${anchor.id}: ${err?.message ?? err}`);
+      }
+    }
+    return { checked: confirmedAnchors.length, reorgAffected };
   }
 
   async getStatus(anchorId: string) {

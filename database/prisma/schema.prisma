@@ -504,6 +504,7 @@ model ChainAnchor {
   contractAddress String            @map("contract_address")
   txHash          String?           @map("tx_hash")
   blockNumber     BigInt?           @map("block_number")
+  blockHash       String?           @map("block_hash")
   status          ChainAnchorStatus @default(pending)
   eventCount      Int               @map("event_count")
   createdAt       DateTime          @default(now()) @map("created_at")

@@ -152,6 +152,21 @@ export default function AdminPage() {
     }
   }
 
+  async function onDetectReorgs() {
+    setAnchorsError(null);
+    try {
+      const result = await api.post<{ checked: number; reorgAffected: number }>("/admin/chain/detect-reorgs");
+      setActionMsg(
+        result.reorgAffected > 0
+          ? `Checked ${result.checked} confirmed anchor(s): ${result.reorgAffected} were reorganized out — flagged reorg_affected.`
+          : `Checked ${result.checked} confirmed anchor(s): all still on the canonical chain.`,
+      );
+      loadAnchors();
+    } catch (err) {
+      setAnchorsError(err instanceof ApiRequestError ? err.apiError.message : "Could not check for reorgs.");
+    }
+  }
+
   async function onViewDocument(storageKey: string) {
     try {
       await api.openFile(storageKey);
@@ -353,6 +368,9 @@ export default function AdminPage() {
       </button>{" "}
       <button style={secondaryButton} onClick={onReconcile}>
         Recheck pending anchors
+      </button>{" "}
+      <button style={secondaryButton} onClick={onDetectReorgs}>
+        Check confirmed anchors for reorgs
       </button>
       {anchorsError && <p style={errorText}>{anchorsError}</p>}
       {anchors && anchors.length === 0 && <p style={muted}>No anchors submitted yet.</p>}
