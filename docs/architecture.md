@@ -172,6 +172,19 @@ was used instead of `docker compose up -d db`:
   this feature existed. Also confirmed the boundary cases: no token → 401,
   a path-traversal attempt in the storage key → 404 (not a crash or a
   leaked file), and a disallowed extension (`.exe`) → a clean 400.
+- Dispute resolution, which previously had no implementation at all — a
+  dispute could be opened but never closed, leaving the assignment stuck
+  in `disputed` forever. Added `AssignmentsService.resolveDispute` plus an
+  admin disputes queue, then exercised both outcomes live: opened a real
+  dispute as the carrier, resolved it `resolved_for_counterparty` through
+  the admin UI and confirmed the assignment genuinely un-froze back to
+  `active` (not just the dispute row changing), then opened a second
+  dispute and resolved it `resolved_for_opener` and confirmed the
+  assignment moved to `cancelled` instead. The business rule mapping
+  resolution outcome to assignment status is a first-pass default
+  documented in `AssignmentsService.resolveDispute`'s docstring, not
+  something pulled from the founder's brief — validate it before trusting
+  it on a real dispute.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anything that would need a live blockchain RPC endpoint (not

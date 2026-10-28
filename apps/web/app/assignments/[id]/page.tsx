@@ -23,6 +23,9 @@ interface Dispute {
   id: string;
   reason: string;
   status: string;
+  resolutionCode: string | null;
+  resolutionNotes: string | null;
+  resolvedAt: string | null;
 }
 
 interface Assignment {
@@ -240,7 +243,7 @@ export default function AssignmentPage() {
         </div>
       )}
 
-      {isParty && assignment.status !== "confirmed" && assignment.status !== "cancelled" && (
+      {isParty && assignment.status !== "confirmed" && assignment.status !== "cancelled" && assignment.status !== "disputed" && (
         <div style={card}>
           <h3 style={{ marginTop: 0 }}>Open a dispute</h3>
           <form onSubmit={onOpenDispute} style={form}>
@@ -322,6 +325,12 @@ export default function AssignmentPage() {
             {assignment.disputes.map((d) => (
               <li key={d.id} style={card}>
                 <span style={badge}>{d.status}</span> {d.reason}
+                {d.resolvedAt && (
+                  <p style={muted}>
+                    Resolved {new Date(d.resolvedAt).toLocaleString()}
+                    {d.resolutionNotes && ` — ${d.resolutionNotes}`}
+                  </p>
+                )}
               </li>
             ))}
           </ul>

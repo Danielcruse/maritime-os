@@ -1,10 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { PointsService } from "../points/points.service";
 import { ReputationService } from "../reputation/reputation.service";
 import { SubmitEvidenceDto } from "./dto/submit-evidence.dto";
 import { OpenDisputeDto } from "./dto/open-dispute.dto";
+import { ResolveDisputeDto } from "./dto/resolve-dispute.dto";
 
 const ASSIGNMENT_COMPLETION_POINTS = "50.00";
 
@@ -224,6 +225,87 @@ export class AssignmentsService {
       );
 
       return dispute;
+    });
+  }
+
+  /** Admin-only queue — mirrors organizationsService.listVerificationCases. */
+  async listDisputes(status?: "open" | "under_review" | "resolved_for_opener" | "resolved_for_counterparty" | "dismissed") {
+    return this.prisma.dispute.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        assignment: { include: { listing: { select: { id: true, title: true, organizationId: true } } } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  /**
+   * Resolves a dispute and un-blocks the assignment it froze. Business rule
+   * (not in the original blueprint — a reasonable first-pass default,
+   * documented in docs/architecture.md, to validate before trusting it on a
+   * real dispute): "dismissed" or "resolved_for_counterparty" return the
+   * assignment to its pre-dispute operational status (evidence_submitted if
+   * completion evidence exists, else active) so the normal evidence/confirm
+   * flow can still finish it; "resolved_for_opener" cancels the assignment
+   * outright — no points are ever awarded for a cancelled assignment.
+   */
+  async resolveDispute(disputeId: string, adminUserId: string, dto: ResolveDisputeDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const dispute = await tx.dispute.findUnique({ where: { id: disputeId }, include: { assignment: true } });
+      if (!dispute) throw new NotFoundException("Dispute not found.");
+      if (dispute.status !== "open" && dispute.status !== "under_review") {
+        throw new ConflictException("This dispute has already been resolved.");
+      }
+
+      const updatedDispute = await tx.dispute.update({
+        where: { id: disputeId },
+        data: {
+          status: dto.status,
+          resolutionCode: dto.resolutionCode,
+          resolutionNotes: dto.resolutionNotes,
+          resolvedAt: new Date(),
+        },
+      });
+
+      const assignmentId = dispute.assignmentId;
+      let newAssignmentStatus: "active" | "evidence_submitted" | "cancelled";
+      if (dto.status === "resolved_for_opener") {
+        newAssignmentStatus = "cancelled";
+      } else {
+        const hasEvidence = (await tx.completionEvidence.count({ where: { assignmentId } })) > 0;
+        newAssignmentStatus = hasEvidence ? "evidence_submitted" : "active";
+      }
+
+      await tx.assignment.update({ where: { id: assignmentId }, data: { status: newAssignmentStatus } });
+      await tx.assignmentEvent.create({
+        data: {
+          assignmentId,
+          eventType: "dispute_resolved",
+          actorId: adminUserId,
+          payload: { disputeId, status: dto.status, newAssignmentStatus },
+        },
+      });
+      await tx.adminAction.create({
+        data: {
+          adminUserId,
+          actionType: "dispute_resolution",
+          targetType: "dispute",
+          targetId: disputeId,
+          reason: dto.resolutionCode,
+        },
+      });
+      await this.auditService.record(
+        {
+          actorId: adminUserId,
+          eventType: "assignment.dispute_resolved",
+          entityType: "assignment",
+          entityId: assignmentId,
+          payload: { disputeId, status: dto.status },
+        },
+        tx,
+      );
+
+      return updatedDispute;
     });
   }
 
