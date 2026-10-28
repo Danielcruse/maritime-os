@@ -252,6 +252,15 @@ was used instead of `docker compose up -d db`:
   `confirmed` with a real block number. This proves the API never hangs
   waiting on a slow chain and that a pending anchor genuinely does get
   picked up later, not just that the code compiles.
+- The audit trail was previously built (hash-chained `AuditEvent` rows)
+  but had no frontend anywhere — a real gap given "auditable history" is
+  the last step of this project's own one-line mission statement. Added
+  `/audit/[entityType]/[entityId]`, linked from the assignment and
+  organization pages, and confirmed live: an assignment's three events
+  (`awarded` → `evidence_submitted` → `confirmed`) each show the right
+  `previousHash`, each one matching the prior event's own hash exactly
+  (not just present — checked they're the same value), and each correctly
+  links to the anchor that actually covers it.
 
 Still not run anywhere: load/concurrency testing, a backup/restore drill,
 and anchoring against anything other than this local `anvil` chain.

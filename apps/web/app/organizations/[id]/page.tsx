@@ -266,6 +266,13 @@ export default function OrganizationPage() {
       <p>
         <span style={badge}>{org.countryCode}</span> <span style={badge}>{org.verificationStatus}</span>
       </p>
+      {isLoggedIn() && (
+        <p style={muted}>
+          <a href={`/audit/organization/${org.id}`} style={{ color: "#2f6fed" }}>
+            View tamper-evident audit trail →
+          </a>
+        </p>
+      )}
 
       <div style={card}>
         <h3 style={{ marginTop: 0 }}>Reputation</h3>

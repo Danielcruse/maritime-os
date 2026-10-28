@@ -345,6 +345,11 @@ export default function AssignmentPage() {
           </li>
         ))}
       </ul>
+      <p style={muted}>
+        <a href={`/audit/assignment/${assignment.id}`} style={{ color: "#2f6fed" }}>
+          View tamper-evident audit trail →
+        </a>
+      </p>
     </div>
   );
 }
