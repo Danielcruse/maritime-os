@@ -2,15 +2,11 @@
 pragma solidity ^0.8.24;
 
 /// @title AnchorRegistry
-/// @notice Append-only, on-chain registry of Merkle roots anchoring batches of
-/// Maritime OS audit events. The contract never sees event content — only a
-/// batch's Merkle root, how many leaves it covers, and an off-chain reference
-/// id (the Postgres ChainAnchor row's UUID) so on-chain and off-chain records
-/// can be cross-referenced without an indexer.
-/// @dev Single authorized submitter (the API's signing key) for this MVP —
-/// not a multi-sig or DAO-governed submitter set. See
-/// docs/architecture.md "Known limitations" before trusting this beyond a
-/// local development chain.
+/// @notice Permissionless, append-only registry of Merkle roots for Maritime OS
+/// audit batches. No owner, privileged submitter, upgrade hook, or governance
+/// key exists: any account may publish an anchor and anyone may verify it.
+/// @dev Anchors prove that a root was recorded, not that the off-chain events
+/// are true. Event data and proofs must remain independently available off-chain.
 contract AnchorRegistry {
     struct Anchor {
         bytes32 batchRoot;
@@ -19,11 +15,7 @@ contract AnchorRegistry {
         address submitter;
     }
 
-    address public owner;
-    address public submitter;
     Anchor[] private anchors;
-
-    // 1-based so 0 reliably means "not found" from the zero value of a Solidity mapping.
     mapping(bytes32 => uint256) private rootToIndexPlusOne;
     mapping(bytes32 => bool) public offChainRefAnchored;
 
@@ -35,10 +27,7 @@ contract AnchorRegistry {
         uint64 timestamp,
         address submitter
     );
-    event SubmitterUpdated(address indexed previousSubmitter, address indexed newSubmitter);
 
-    error NotOwner();
-    error NotSubmitter();
     error EmptyRoot();
     error ZeroEventCount();
     error ReferenceAlreadyAnchored();
@@ -47,34 +36,13 @@ contract AnchorRegistry {
     error InvalidHexLength();
     error InvalidHexChar();
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
-    modifier onlySubmitter() {
-        if (msg.sender != submitter) revert NotSubmitter();
-        _;
-    }
-
-    constructor(address initialSubmitter) {
-        owner = msg.sender;
-        submitter = initialSubmitter == address(0) ? msg.sender : initialSubmitter;
-    }
-
-    /// @notice Rotate the authorized submitter (e.g. the API's signing key is rotated).
-    function setSubmitter(address newSubmitter) external onlyOwner {
-        emit SubmitterUpdated(submitter, newSubmitter);
-        submitter = newSubmitter;
-    }
-
-    /// @param batchRoot Deterministic Merkle root computed off-chain over sorted leaf hashes.
-    /// @param eventCount Number of audit events folded into this root (informational, not verified on-chain).
-    /// @param offChainRef The off-chain ChainAnchor row's UUID, packed into bytes32, so a reader
-    /// can look up the matching Postgres row directly from the emitted event.
+    /// @notice Publishes a Merkle root. Authorization is intentionally
+    /// permissionless; the caller pays the network transaction fee.
+    /// @param batchRoot Merkle root computed over sorted event hashes.
+    /// @param eventCount Number of event hashes in the batch (informational).
+    /// @param offChainRef UUID/reference for independently finding the batch.
     function submitAnchor(bytes32 batchRoot, uint64 eventCount, bytes32 offChainRef)
         external
-        onlySubmitter
         returns (uint256 index)
     {
         if (batchRoot == bytes32(0)) revert EmptyRoot();
@@ -82,14 +50,12 @@ contract AnchorRegistry {
         if (offChainRefAnchored[offChainRef]) revert ReferenceAlreadyAnchored();
 
         index = anchors.length;
-        anchors.push(
-            Anchor({
-                batchRoot: batchRoot,
-                eventCount: eventCount,
-                timestamp: uint64(block.timestamp),
-                submitter: msg.sender
-            })
-        );
+        anchors.push(Anchor({
+            batchRoot: batchRoot,
+            eventCount: eventCount,
+            timestamp: uint64(block.timestamp),
+            submitter: msg.sender
+        }));
         rootToIndexPlusOne[batchRoot] = index + 1;
         offChainRefAnchored[offChainRef] = true;
 
@@ -110,20 +76,14 @@ contract AnchorRegistry {
         return (a.batchRoot, a.eventCount, a.timestamp, a.submitter);
     }
 
-    /// @notice Returns 0 if the root was never anchored; otherwise the 1-based index (subtract 1 for the array position).
+    /// @notice Returns 0 if the root was never anchored; otherwise index + 1.
     function indexOfRoot(bytes32 batchRoot) external view returns (uint256) {
         return rootToIndexPlusOne[batchRoot];
     }
 
-    /// @notice Verifies that a single leaf is included in the anchor at `anchorIndex`'s batch
-    /// root, given a compact Merkle proof (O(log n) sibling hashes) — the caller never needs
-    /// the batch's other leaves. Mirrors apps/api/src/chain/merkle.ts exactly: at each level,
-    /// sha256 of the two 64-char lowercase hex strings concatenated AS TEXT, not their raw 32
-    /// bytes (matching Node's `createHash("sha256").update(leftHex + rightHex)`). `view`, so
-    /// any indexer or verifier can call this for free via eth_call — no gas, no state change.
-    /// @param leafHex The leaf's own hash, as a 64-char lowercase hex string (no 0x prefix).
-    /// @param proofHex Sibling hash at each level, root-ward from the leaf, same hex format.
-    /// @param siblingIsLeft For proofHex[i]: true if that sibling sits to the left of the running hash.
+    /// @notice Verifies a leaf and compact Merkle proof against an anchor root.
+    /// Hashing mirrors apps/api/src/chain/merkle.ts: SHA-256 over concatenated
+    /// lowercase 64-character hex strings, not raw bytes.
     function verifyInclusion(
         uint256 anchorIndex,
         string calldata leafHex,
@@ -132,15 +92,26 @@ contract AnchorRegistry {
     ) external view returns (bool) {
         if (anchorIndex >= anchors.length) revert IndexOutOfRange();
         if (proofHex.length != siblingIsLeft.length) revert ProofLengthMismatch();
+        _validateHashHex(leafHex);
 
         bytes memory current = bytes(leafHex);
         for (uint256 i = 0; i < proofHex.length; i++) {
+            _validateHashHex(proofHex[i]);
             bytes memory sibling = bytes(proofHex[i]);
             bytes memory combined = siblingIsLeft[i] ? bytes.concat(sibling, current) : bytes.concat(current, sibling);
             current = bytes(_toHexString(sha256(combined)));
         }
 
         return _hexStringToBytes32(string(current)) == anchors[anchorIndex].batchRoot;
+    }
+
+    function _validateHashHex(string calldata value) private pure {
+        bytes calldata data = bytes(value);
+        if (data.length != 64) revert InvalidHexLength();
+        for (uint256 i = 0; i < data.length; i++) {
+            uint8 c = uint8(data[i]);
+            if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 102))) revert InvalidHexChar();
+        }
     }
 
     function _toHexString(bytes32 data) private pure returns (string memory) {
@@ -155,9 +126,8 @@ contract AnchorRegistry {
 
     function _hexCharToNibble(bytes1 c) private pure returns (uint8) {
         uint8 b = uint8(c);
-        if (b >= 48 && b <= 57) return b - 48; // '0'-'9'
-        if (b >= 97 && b <= 102) return b - 87; // 'a'-'f'
-        if (b >= 65 && b <= 70) return b - 55; // 'A'-'F'
+        if (b >= 48 && b <= 57) return b - 48;
+        if (b >= 97 && b <= 102) return b - 87;
         revert InvalidHexChar();
     }
 
