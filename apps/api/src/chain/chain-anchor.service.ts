@@ -50,6 +50,24 @@ export class ChainAnchorService {
     return this.isChainConfigured();
   }
 
+  private getProvider(): JsonRpcProvider {
+    return new JsonRpcProvider(this.configService.get<string>("CHAIN_RPC_URL")!);
+  }
+
+  private async assertExpectedChain(provider: JsonRpcProvider): Promise<void> {
+    const configuredChainId = this.configService.get<string>("CHAIN_ID");
+    if (!configuredChainId) return;
+
+    const network = await provider.getNetwork();
+    const expectedChainId = Number(configuredChainId);
+    if (Number(network.chainId) !== expectedChainId) {
+      throw new Error(
+        `RPC network mismatch: configured CHAIN_ID=${expectedChainId}, actual chainId=${network.chainId}. ` +
+          "Do not submit or verify anchors against an unexpected network.",
+      );
+    }
+  }
+
   private getContract(): Contract {
     const rpcUrl = this.configService.get<string>("CHAIN_RPC_URL")!;
     const contractAddress = this.configService.get<string>("CHAIN_ANCHOR_CONTRACT_ADDRESS")!;
@@ -94,6 +112,9 @@ export class ChainAnchorService {
       });
     }
 
+    const provider = this.getProvider();
+    await this.assertExpectedChain(provider);
+
     // Created before the on-chain call so a reverted/dropped transaction
     // still leaves an honest "failed" row instead of silently losing the
     // attempt.
@@ -136,7 +157,8 @@ export class ChainAnchorService {
   private async tryConfirm(anchor: { id: string; txHash: string | null }, timeoutMs: number) {
     if (!anchor.txHash) return this.prisma.chainAnchor.findUniqueOrThrow({ where: { id: anchor.id } });
     try {
-      const provider = new JsonRpcProvider(this.configService.get<string>("CHAIN_RPC_URL")!);
+      const provider = this.getProvider();
+      await this.assertExpectedChain(provider);
       const receipt = await provider.waitForTransaction(anchor.txHash, 1, timeoutMs);
       if (!receipt) return this.prisma.chainAnchor.findUniqueOrThrow({ where: { id: anchor.id } });
       return this.prisma.chainAnchor.update({
@@ -161,12 +183,14 @@ export class ChainAnchorService {
   async reconcilePending(): Promise<{ checked: number; confirmed: number; failed: number }> {
     if (!this.isChainConfigured()) return { checked: 0, confirmed: 0, failed: 0 };
 
+    const provider = this.getProvider();
+    await this.assertExpectedChain(provider);
+
     const pending = await this.prisma.chainAnchor.findMany({
       where: { status: "pending", txHash: { not: null } },
     });
     if (pending.length === 0) return { checked: 0, confirmed: 0, failed: 0 };
 
-    const provider = new JsonRpcProvider(this.configService.get<string>("CHAIN_RPC_URL")!);
     let confirmed = 0;
     let failed = 0;
     for (const anchor of pending) {
@@ -207,12 +231,14 @@ export class ChainAnchorService {
   async detectReorgs(): Promise<{ checked: number; reorgAffected: number }> {
     if (!this.isChainConfigured()) return { checked: 0, reorgAffected: 0 };
 
+    const provider = this.getProvider();
+    await this.assertExpectedChain(provider);
+
     const confirmedAnchors = await this.prisma.chainAnchor.findMany({
       where: { status: "confirmed", blockNumber: { not: null }, blockHash: { not: null } },
     });
     if (confirmedAnchors.length === 0) return { checked: 0, reorgAffected: 0 };
 
-    const provider = new JsonRpcProvider(this.configService.get<string>("CHAIN_RPC_URL")!);
     let reorgAffected = 0;
     for (const anchor of confirmedAnchors) {
       try {
@@ -267,6 +293,7 @@ export class ChainAnchorService {
     if (!rpcUrl || /^0x0+$/.test(anchor.contractAddress)) return null;
     try {
       const provider = new JsonRpcProvider(rpcUrl);
+      await this.assertExpectedChain(provider);
       const readOnly = new Contract(anchor.contractAddress, ANCHOR_REGISTRY_ABI, provider);
       const indexPlusOne: bigint = await readOnly.indexOfRoot(`0x${anchor.batchRoot}`);
       if (indexPlusOne === 0n) return null; // this contract doesn't know this root (e.g. chain was reset)
