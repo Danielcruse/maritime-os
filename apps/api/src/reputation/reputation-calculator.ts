@@ -1,4 +1,6 @@
-export const REPUTATION_SCORE_VERSION = "2026-10-27.1";
+export const REPUTATION_SCORE_VERSION = "2026-11-16.1";
+
+export type ReputationTier = "Bronze" | "Silver" | "Gold" | "Platinum";
 
 export interface ReputationMetricsInput {
   confirmedCompletedCount: number;
@@ -23,6 +25,21 @@ export interface ReputationResult {
   score: number;
   sampleSize: number;
   metrics: ReputationMetricsOutput;
+}
+
+export const REPUTATION_TIERS: Record<ReputationTier, { min: number; max: number; starLabel: string }> = {
+  Bronze: { min: 0, max: 39, starLabel: "★" },
+  Silver: { min: 40, max: 69, starLabel: "★★" },
+  Gold: { min: 70, max: 89, starLabel: "★★★" },
+  Platinum: { min: 90, max: 100, starLabel: "★★★★" },
+};
+
+export function getReputationTier(score: number): ReputationTier {
+  const clamped = Math.max(0, Math.min(100, score));
+  if (clamped >= REPUTATION_TIERS.Platinum.min) return "Platinum";
+  if (clamped >= REPUTATION_TIERS.Gold.min) return "Gold";
+  if (clamped >= REPUTATION_TIERS.Silver.min) return "Silver";
+  return "Bronze";
 }
 
 /**
@@ -75,3 +92,4 @@ export function calculateReputation(input: ReputationMetricsInput): ReputationRe
     },
   };
 }
+
