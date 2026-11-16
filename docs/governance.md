@@ -64,4 +64,8 @@ The system should not claim “decentralized” status until it has:
 - external operator validation on a testnet,
 - and a documented protocol boundary between off-chain authority and on-chain proof.
 
-At that point, the project can honestly call itself a decentralized maritime protocol rather than a centralized app with a local anchor layer.
+## Audit-log integrity implementation
+
+Audit appends now acquire a stable PostgreSQL transaction-scoped advisory lock before reading the predecessor hash. This serializes append operations across API replicas. New event payloads are canonicalized recursively so nested keys and values are included deterministically; the verifier retains a legacy fallback for historical events written with the previous shallow-key algorithm.
+
+This relies on PostgreSQL advisory locks and on every audit append going through `AuditService`. Direct writes to `audit_events` bypass the chain and are not supported. Run the audit unit tests and the database-backed lifecycle tests before deployment; distributed batch claiming and independently available proof storage remain separate production work.
